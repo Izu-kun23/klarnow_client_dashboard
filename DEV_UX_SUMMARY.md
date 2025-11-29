@@ -1287,10 +1287,10 @@ PUT /api/admin/projects/[projectId]
 ------
 
 ## .env configurations
-NEXT_PUBLIC_SUPABASE_URL=https://eohxojcymgjhknkorrnm.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvaHhvamN5bWdqaGtua29ycm5tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE1MDg2NDQsImV4cCI6MjA3NzA4NDY0NH0.kJTWSMjjfXLc12RosbDn95vovFJMhOJqILHXQFPa4MY
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvaHhvamN5bWdqaGtua29ycm5tIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTUwODY0NCwiZXhwIjoyMDc3MDg0NjQ0fQ.ysju08_DtNKRDadzq_J7_EzOy4UErJpqpebXqD1uffk
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
 
 --------
 
