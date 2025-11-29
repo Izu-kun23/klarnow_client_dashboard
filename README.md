@@ -1,24 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Klarnow Client Dashboard
+
+A guided onboarding and project tracking system for Klarnow clients. Helps clients submit information for their Launch Kit (3-page site) or Growth Kit (4-6 page funnel with emails) over 14 days.
+
+## Tech Stack
+
+- **Framework:** Next.js 16 (App Router)
+- **Language:** TypeScript
+- **Database & Auth:** Supabase
+- **Styling:** Tailwind CSS
+- **Deployment:** Vercel
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
+- Node.js 18+ installed
+- Supabase project set up (see configuration below)
+
+### Installation
+
+1. Install dependencies:
+```bash
+npm install
+```
+
+2. Set up environment variables:
+```bash
+cp .env.local.example .env.local
+```
+
+Then update `.env.local` with your Supabase credentials:
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+```
+
+3. Run the development server:
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Project Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+src/
+├── app/
+│   ├── page.tsx                 # Root page (redirects)
+│   ├── layout.tsx              # Root layout
+│   ├── login/                  # Client login
+│   ├── home/                   # Home tab - project status
+│   ├── launch-kit/             # Launch Kit tab
+│   │   ├── onboarding/         # Onboarding wizard
+│   │   └── build-tracker/      # Build tracker view
+│   └── growth-kit/             # Growth Kit tab
+│       ├── onboarding/
+│       └── build-tracker/
+├── components/
+│   ├── ui/                     # UI components
+│   ├── onboarding/             # Onboarding components
+│   └── tracker/                # Build tracker components
+├── utils/
+│   └── supabase/               # Supabase client utilities
+├── types/
+│   └── project.ts              # TypeScript type definitions
+├── lib/
+│   └── utils.ts                # Utility functions
+└── hooks/                      # React hooks
+```
+
+## Documentation
+
+- `DEV_UX_SUMMARY.md` - Comprehensive technical specifications
+- `KLARNOW_DASHBOARD_REQUIREMENTS.md` - Requirements and specifications
 
 ## Learn More
 
