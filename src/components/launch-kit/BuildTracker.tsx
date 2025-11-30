@@ -177,16 +177,29 @@ export default function LaunchKitBuildTracker({ phases, project }: BuildTrackerP
             const totalItems = phase.checklist?.length || 0
             const progressPercent = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0
             
+            // Check if previous phase is complete
+            const previousPhase = phase.phase_number > 1 
+              ? displayPhases.find(p => p.phase_number === phase.phase_number - 1)
+              : null
+            const isLocked = previousPhase ? previousPhase.status !== 'DONE' : false
+            
             return (
               <button
                 key={phase.id}
-                onClick={() => setExpandedPhase(expandedPhase === phase.phase_number ? null : phase.phase_number)}
+                onClick={() => {
+                  if (!isLocked) {
+                    setExpandedPhase(expandedPhase === phase.phase_number ? null : phase.phase_number)
+                  }
+                }}
+                disabled={isLocked}
                 className={`
                   group relative
                   border border-[#8359ee]/20 border-b-2 border-b-[#8359ee] rounded-lg p-6 text-left
                   transition-all duration-200 ease-out
                   ${
-                    expandedPhase === phase.phase_number
+                    isLocked
+                      ? 'opacity-50 cursor-not-allowed bg-gray-50'
+                      : expandedPhase === phase.phase_number
                       ? 'bg-gray-50'
                       : phase.status === 'WAITING_ON_CLIENT'
                       ? 'bg-white hover:bg-yellow-50/20'
@@ -202,9 +215,15 @@ export default function LaunchKitBuildTracker({ phases, project }: BuildTrackerP
                   <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Phase {phase.phase_number}
                   </span>
-                  <span className={`text-xs font-medium px-2 py-1 rounded ${getStatusColor(phase.status)}`}>
-                    {getStatusLabel(phase.status)}
-                  </span>
+                  {isLocked ? (
+                    <span className="text-xs font-medium px-2 py-1 rounded bg-gray-100 text-gray-500 border border-gray-200">
+                      Locked
+                    </span>
+                  ) : (
+                    <span className={`text-xs font-medium px-2 py-1 rounded ${getStatusColor(phase.status)}`}>
+                      {getStatusLabel(phase.status)}
+                    </span>
+                  )}
                 </div>
                 
                 <h3 className="text-xl font-medium text-black mb-2 leading-tight">{phase.title}</h3>

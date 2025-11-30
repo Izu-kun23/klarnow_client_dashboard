@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ProjectWithRelations, OnboardingStep } from '@/types/project'
+import { fetchQuizSubmissionByEmail, mapQuizToOnboardingFields } from '@/utils/fetchQuizSubmission'
 
 interface Step1FormProps {
   project: ProjectWithRelations | null
@@ -62,6 +63,50 @@ export default function GrowthKitStep1Form({ project, step }: Step1FormProps) {
   }
   
   const [formData, setFormData] = useState<FormData>(getStepData())
+  const [isLoadingQuizData, setIsLoadingQuizData] = useState(true)
+
+  // Fetch and pre-fill quiz submission data on mount
+  useEffect(() => {
+    const loadQuizData = async () => {
+      try {
+        const userData = localStorage.getItem('user')
+        if (!userData) return
+
+        const user = JSON.parse(userData)
+        const userEmail = user.email || user.email_address
+
+        if (!userEmail) return
+
+        // Fetch quiz submission
+        const quizSubmission = await fetchQuizSubmissionByEmail(userEmail)
+        
+        if (quizSubmission) {
+          // Map quiz data to onboarding fields
+          const mappedFields = mapQuizToOnboardingFields(quizSubmission, 'GROWTH')
+          
+          // Only pre-fill empty fields (don't overwrite existing data)
+          setFormData(prev => {
+            const updated = { ...prev }
+            Object.keys(mappedFields).forEach(key => {
+              const fieldKey = key as keyof FormData
+              // Only set if current value is empty
+              if (!prev[fieldKey] || prev[fieldKey] === '' || 
+                  (Array.isArray(prev[fieldKey]) && prev[fieldKey].length === 0)) {
+                updated[fieldKey] = mappedFields[key] as any
+              }
+            })
+            return updated
+          })
+        }
+      } catch (error) {
+        console.error('Error loading quiz data:', error)
+      } finally {
+        setIsLoadingQuizData(false)
+      }
+    }
+
+    loadQuizData()
+  }, [])
 
   const requiredFields = [
     formData.business_name,

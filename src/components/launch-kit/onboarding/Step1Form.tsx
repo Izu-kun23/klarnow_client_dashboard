@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ProjectWithRelations, OnboardingStep } from '@/types/project'
+import { fetchQuizSubmissionByEmail, mapQuizToOnboardingFields } from '@/utils/fetchQuizSubmission'
 
 interface Step1FormProps {
   project: ProjectWithRelations | null
@@ -51,6 +52,56 @@ export default function LaunchKitStep1Form({ project, step }: Step1FormProps) {
   }
   
   const [formData, setFormData] = useState<FormData>(getStepData())
+  const [isLoadingQuizData, setIsLoadingQuizData] = useState(true)
+
+  // Fetch and pre-fill quiz submission data on mount
+  useEffect(() => {
+    const loadQuizData = async () => {
+      try {
+        const userData = localStorage.getItem('user')
+        if (!userData) return
+
+        const user = JSON.parse(userData)
+        const userEmail = user.email || user.email_address
+
+        if (!userEmail) return
+
+        // Fetch quiz submission
+        const quizSubmission = await fetchQuizSubmissionByEmail(userEmail)
+        
+        if (quizSubmission) {
+          // Map quiz data to onboarding fields
+          const mappedFields = mapQuizToOnboardingFields(quizSubmission, 'LAUNCH')
+          
+          // Only pre-fill empty fields (don't overwrite existing data)
+          setFormData(prev => {
+            const updated = { ...prev }
+            Object.keys(mappedFields).forEach(key => {
+              const fieldKey = key as keyof FormData
+              // Only set if current value is empty
+              if (!prev[fieldKey] || prev[fieldKey] === '') {
+                if (fieldKey === 'social_links' && mappedFields[key]) {
+                  // Handle social links specially
+                  if (!prev.social_links || prev.social_links.length === 0 || !prev.social_links[0]?.url) {
+                    // Don't auto-fill social links, keep empty
+                  }
+                } else {
+                  updated[fieldKey] = mappedFields[key] as any
+                }
+              }
+            })
+            return updated
+          })
+        }
+      } catch (error) {
+        console.error('Error loading quiz data:', error)
+      } finally {
+        setIsLoadingQuizData(false)
+      }
+    }
+
+    loadQuizData()
+  }, [])
 
   // Calculate completed required fields
   const requiredFields = [
