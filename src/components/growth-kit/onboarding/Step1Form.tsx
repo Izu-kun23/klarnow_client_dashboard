@@ -99,7 +99,7 @@ export default function GrowthKitStep1Form({ project, step }: Step1FormProps) {
           // Pre-fill all matching fields from quiz submission
           // Use merge utility to ensure prefilled data overwrites empty strings
           setFormData(prev => {
-            const merged = mergeQuizDataWithFormData(prev, mappedFields, true)
+            const merged = mergeQuizDataWithFormData(prev, mappedFields, true) as FormData
             console.log('[Growth Step1] Pre-filled form fields from quiz submission:', {
               mappedFields: Object.keys(mappedFields),
               mergedFields: Object.keys(merged)
