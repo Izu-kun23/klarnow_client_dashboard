@@ -23,7 +23,15 @@ export interface UserLookupResponse {
     email: string
     phone_number: string | null
     brand_name: string
+    logo_status?: string
+    brand_goals?: string[]
+    online_presence?: string
+    audience?: string[]
+    brand_style?: string
+    timeline?: string
     preferred_kit: string | null
+    created_at?: string
+    updated_at?: string
   }
 }
 

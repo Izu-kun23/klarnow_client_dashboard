@@ -1,11 +1,11 @@
 'use client'
 
-import { ProjectWithRelations } from '@/types/project'
+import { ProjectWithMergedPhases } from '@/types/project'
 import { useRouter } from 'next/navigation'
 import DashboardCoursueStyle from './DashboardCoursueStyle'
 
 interface DashboardOverviewProps {
-  project: ProjectWithRelations | null
+  project: ProjectWithMergedPhases | null
 }
 
 export default function DashboardOverview({ project }: DashboardOverviewProps) {
@@ -23,9 +23,9 @@ function OldDashboardOverview({ project }: DashboardOverviewProps) {
     || project?.phases?.filter((p) => p.status === 'DONE').pop() 
     || null
 
-  // Get onboarding steps status
-  const onboardingSteps = project?.onboarding_steps || []
-  const completedSteps = onboardingSteps.filter(s => s.status === 'DONE').length
+  // Get onboarding steps status (may not exist in ProjectWithMergedPhases)
+  const onboardingSteps = (project as any)?.onboarding_steps || []
+  const completedSteps = onboardingSteps.filter((s: any) => s.status === 'DONE').length
   const totalSteps = onboardingSteps.length
 
   const stats = [
@@ -52,8 +52,8 @@ function OldDashboardOverview({ project }: DashboardOverviewProps) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
         </svg>
       ),
-      gradient: 'from-[#8359ee]/10 via-[#8359ee]/5 to-white',
-      borderColor: 'border-[#8359ee]/20',
+      gradient: 'from-indigo-50 via-indigo-50/50 to-white',
+      borderColor: 'border-indigo-200/60',
       iconColor: 'text-[#8359ee]',
       hover: 'hover:shadow-lg hover:scale-[1.02]',
       progress: project?.onboarding_percent || 0
@@ -114,7 +114,7 @@ function OldDashboardOverview({ project }: DashboardOverviewProps) {
       ),
       gradient: 'from-blue-50 via-blue-50/30 to-white',
       borderColor: 'border-blue-200/50',
-      iconColor: 'text-[#8359ee]',
+      iconColor: 'text-blue-600',
       bgColor: 'bg-[#8359ee]/10/40'
     }
   ]
@@ -149,7 +149,7 @@ function OldDashboardOverview({ project }: DashboardOverviewProps) {
               style={{ animationDelay: `${index * 100}ms` }}
             >
               {/* Icon */}
-              <div className={`mb-4 w-12 h-12 rounded-xl ${stat.bgColor || 'bg-white/60'} flex items-center justify-center ${stat.iconColor} transition-transform duration-300 group-hover:scale-110`}>
+              <div className={`mb-4 w-12 h-12 rounded-xl bg-white/60 flex items-center justify-center ${stat.iconColor} transition-transform duration-300 group-hover:scale-110`}>
                 {stat.icon}
               </div>
 
@@ -223,7 +223,7 @@ function OldDashboardOverview({ project }: DashboardOverviewProps) {
 
         {/* Quick Actions */}
         {project && (
-          <div className="rounded-2xl bg-white border border-[#8359ee]/20 p-6 shadow-sm animate-in fade-in slide-in-from-bottom-4">
+          <div className="rounded-2xl bg-white border border-indigo-200/50 p-6 shadow-sm animate-in fade-in slide-in-from-bottom-4">
             <h2 className="text-lg font-semibold text-black mb-4">Quick Actions</h2>
             <div className="flex flex-wrap gap-3">
               {project.kit_type === 'LAUNCH' ? (
@@ -241,15 +241,15 @@ function OldDashboardOverview({ project }: DashboardOverviewProps) {
                   Go to Growth Kit
                 </button>
               )}
-              {onboardingSteps.some(s => s.status !== 'DONE') && (
+              {onboardingSteps.some((s: any) => s.status !== 'DONE') && (
                 <button
                   onClick={() => {
-                    const incompleteStep = onboardingSteps.find(s => s.status !== 'DONE')
+                    const incompleteStep = onboardingSteps.find((s: any) => s.status !== 'DONE')
                     if (incompleteStep) {
                       router.push(`/${project.kit_type.toLowerCase()}-kit/onboarding/step-${incompleteStep.step_number}`)
                     }
                   }}
-                  className="rounded-full border-2 border-[#8359ee]/20 bg-white px-6 py-2.5 text-sm font-semibold text-[#8359ee] hover:bg-[#8359ee]/10 transition-all duration-200 hover:border-[#8359ee]/30"
+                  className="rounded-full border-2 border-indigo-200 bg-white px-6 py-2.5 text-sm font-semibold text-indigo-700 hover:bg-[#8359ee]/10 transition-all duration-200 hover:border-indigo-300"
                 >
                   Continue Onboarding
                 </button>

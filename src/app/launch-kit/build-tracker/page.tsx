@@ -13,6 +13,19 @@ export default function LaunchKitBuildTrackerPage() {
   useEffect(() => {
     if (!isLoading && (!isAuthenticated || user?.kitType !== 'LAUNCH')) {
       router.push('/')
+      return
+    }
+
+    // Redirect to onboarding if not complete
+    if (!isLoading && isAuthenticated && user) {
+      const onboardingData = localStorage.getItem('onboarding_LAUNCH')
+      const isOnboardingComplete = onboardingData 
+        ? JSON.parse(onboardingData).onboarding_finished === true
+        : false
+      
+      if (!isOnboardingComplete) {
+        router.push('/launch-kit/onboarding/step-1')
+      }
     }
   }, [isAuthenticated, isLoading, user, router])
 

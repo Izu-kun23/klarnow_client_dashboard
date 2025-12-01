@@ -1,11 +1,11 @@
 'use client'
 
-import { ProjectWithRelations } from '@/types/project'
+import { ProjectWithMergedPhases } from '@/types/project'
 import InitializeProjectPrompt from './InitializeProjectPrompt'
 import DashboardOverview from '@/components/dashboard/DashboardOverview'
 
 interface HomePageContentProps {
-  project: ProjectWithRelations | null
+  project: ProjectWithMergedPhases | null
 }
 
 export default function HomePageContent({ project }: HomePageContentProps) {

@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ProjectWithRelations, OnboardingStep } from '@/types/project'
-import { fetchQuizSubmissionByEmail, mapQuizToOnboardingFields } from '@/utils/fetchQuizSubmission'
+import { fetchQuizSubmission, mapQuizToOnboardingFields } from '@/utils/fetchQuizSubmission'
+import { mergeQuizDataWithFormData } from '@/utils/onboarding-save'
 
 interface Step1FormProps {
   project: ProjectWithRelations | null
@@ -25,22 +26,11 @@ export default function LaunchKitStep1Form({ project, step }: Step1FormProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   
-  // Get step data from localStorage if not provided
+  // Get step data - merge existing step.fields with base empty form structure
+  // This ensures all required fields exist even if step.fields is incomplete
   const getStepData = () => {
-    if (step?.fields) return step.fields
-    
-    const userData = localStorage.getItem('user')
-    if (userData) {
-      const user = JSON.parse(userData)
-      const onboardingData = localStorage.getItem(`onboarding_${user.kitType}`)
-      if (onboardingData) {
-        const onboarding = JSON.parse(onboardingData)
-        const step1 = onboarding.steps?.find((s: any) => s.step_number === 1)
-        if (step1?.fields) return step1.fields
-      }
-    }
-    
-    return {
+    // Base empty form structure with all required fields
+    const baseForm: FormData = {
       business_name: '',
       name_and_role: '',
       contact_email: '',
@@ -49,12 +39,21 @@ export default function LaunchKitStep1Form({ project, step }: Step1FormProps) {
       what_you_sell: '',
       who_is_this_for: '',
     }
+    
+    // If step.fields exists, merge it with base form
+    // This ensures all fields are present even if step.fields is incomplete
+    if (step?.fields && typeof step.fields === 'object') {
+      return { ...baseForm, ...step.fields }
+    }
+    
+    // Otherwise return base empty form - quiz data will pre-fill via useEffect
+    return baseForm
   }
   
   const [formData, setFormData] = useState<FormData>(getStepData())
   const [isLoadingQuizData, setIsLoadingQuizData] = useState(true)
 
-  // Fetch and pre-fill quiz submission data on mount
+  // Fetch and pre-fill quiz submission data from Supabase on mount
   useEffect(() => {
     const loadQuizData = async () => {
       try {
@@ -62,39 +61,58 @@ export default function LaunchKitStep1Form({ project, step }: Step1FormProps) {
         if (!userData) return
 
         const user = JSON.parse(userData)
+        
+        // Prefer ID over email for accuracy
+        const quizSubmissionId = user.quiz_submission_id
         const userEmail = user.email || user.email_address
 
-        if (!userEmail) return
+        if (!quizSubmissionId && !userEmail) {
+          console.warn('No quiz submission ID or email found in user data')
+          return
+        }
 
-        // Fetch quiz submission
-        const quizSubmission = await fetchQuizSubmissionByEmail(userEmail)
+        console.log('Fetching quiz submission:', {
+          id: quizSubmissionId || 'not provided',
+          email: userEmail || 'not provided'
+        })
+
+        // Fetch by ID (preferred) or email (fallback)
+        const quizSubmission = await fetchQuizSubmission(quizSubmissionId, userEmail)
         
         if (quizSubmission) {
-          // Map quiz data to onboarding fields
-          const mappedFields = mapQuizToOnboardingFields(quizSubmission, 'LAUNCH')
-          
-          // Only pre-fill empty fields (don't overwrite existing data)
-          setFormData(prev => {
-            const updated = { ...prev }
-            Object.keys(mappedFields).forEach(key => {
-              const fieldKey = key as keyof FormData
-              // Only set if current value is empty
-              if (!prev[fieldKey] || prev[fieldKey] === '') {
-                if (fieldKey === 'social_links' && mappedFields[key]) {
-                  // Handle social links specially
-                  if (!prev.social_links || prev.social_links.length === 0 || !prev.social_links[0]?.url) {
-                    // Don't auto-fill social links, keep empty
-                  }
-                } else {
-                  updated[fieldKey] = mappedFields[key] as any
-                }
-              }
-            })
-            return updated
+          console.log('Quiz submission loaded successfully:', {
+            id: quizSubmission.id,
+            email: quizSubmission.email,
+            name: quizSubmission.full_name
           })
         }
+        
+        if (quizSubmission) {
+          // Map quiz data to onboarding fields based on LAUNCH kit
+          const mappedFields = mapQuizToOnboardingFields(quizSubmission, 'LAUNCH')
+          
+          // Pre-fill all matching fields from quiz submission
+          // Use merge utility to ensure prefilled data overwrites empty strings
+          setFormData(prev => {
+            const merged = mergeQuizDataWithFormData(prev, mappedFields, true)
+            console.log('[Step1] Pre-filled form fields from quiz submission:', {
+              mappedFields: Object.keys(mappedFields),
+              mergedFields: Object.keys(merged),
+              sampleMerged: {
+                business_name: merged.business_name,
+                name_and_role: merged.name_and_role,
+                contact_email: merged.contact_email
+              }
+            })
+            return merged
+          })
+          
+          // Note: Prefilled data is now in formData state
+          // When handleSave is called, it will save all fields including prefilled ones
+          console.log('[Step1] Prefilled data loaded and ready to save:', Object.keys(mappedFields))
+        }
       } catch (error) {
-        console.error('Error loading quiz data:', error)
+        console.error('Error loading quiz data from Supabase:', error)
       } finally {
         setIsLoadingQuizData(false)
       }
@@ -167,6 +185,44 @@ export default function LaunchKitStep1Form({ project, step }: Step1FormProps) {
         onboarding_percent: 0
       }
 
+      // Before saving, ensure prefilled quiz data is merged (in case it wasn't loaded yet)
+      // This ensures all prefilled fields are included even if user saves quickly
+      let allFields = { ...formData }
+      
+      // Re-fetch and merge quiz data to ensure nothing is missing
+      try {
+        const userData = localStorage.getItem('user')
+        if (userData) {
+          const user = JSON.parse(userData)
+          const quizSubmissionId = user.quiz_submission_id
+          const userEmail = user.email || user.email_address
+          
+          if (quizSubmissionId || userEmail) {
+            const quizSubmission = await fetchQuizSubmission(quizSubmissionId, userEmail)
+            if (quizSubmission) {
+              const mappedFields = mapQuizToOnboardingFields(quizSubmission, kitType)
+              // Merge quiz data, but preserve user edits
+              allFields = mergeQuizDataWithFormData(allFields, mappedFields, true)
+              console.log('[Step1] Re-merged quiz data before saving')
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('[Step1] Could not re-merge quiz data before saving:', error)
+        // Continue with current formData if merge fails
+      }
+      
+      console.log('[Step1] Saving all fields to localStorage:', {
+        fieldCount: Object.keys(allFields).length,
+        fields: Object.keys(allFields),
+        hasPrefilledData: Object.values(allFields).some(v => v && v !== '' && (Array.isArray(v) ? v.length > 0 : true)),
+        sampleFields: {
+          business_name: allFields.business_name,
+          name_and_role: allFields.name_and_role,
+          contact_email: allFields.contact_email
+        }
+      })
+      
       const stepDataLocal = {
         id: `step-1-${Date.now()}`,
         step_number: 1,
@@ -175,7 +231,7 @@ export default function LaunchKitStep1Form({ project, step }: Step1FormProps) {
         required_fields_total: totalRequired,
         required_fields_completed: completedCount,
         time_estimate: 'About 5 minutes',
-        fields: formData,
+        fields: allFields, // Save ALL fields including prefilled ones
         started_at: step?.started_at || new Date().toISOString(),
         completed_at: isComplete ? new Date().toISOString() : null,
       }

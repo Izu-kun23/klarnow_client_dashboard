@@ -54,7 +54,7 @@ export default function EmailLoginFlow() {
 
       if (!data.exists) {
         setStep('error')
-        setError('This email is not registered. Please contact support to get access.')
+        setError(data.error || 'This email is not registered. Please complete the quiz to get access.')
         setIsLoading(false)
         return
       }
@@ -62,16 +62,17 @@ export default function EmailLoginFlow() {
       // User exists
       setUserData(data)
       
-      // If available_kit_types exist, use the first one as default
-      // Otherwise use preferred_kit or kit_type
-      if (data.available_kit_types && data.available_kit_types.length > 0) {
-        setSelectedKitType(data.available_kit_types[0])
-      } else if (data.quiz_submission?.preferred_kit) {
-        const preferredKit = data.quiz_submission.preferred_kit.toUpperCase() as 'LAUNCH' | 'GROWTH'
+      // PRIORITY: Always use preferred_kit from quiz_submission first (this is the user's actual plan)
+      // Then fall back to available_kit_types, then kit_type
+      if (data.quiz_submission?.preferred_kit) {
+        const preferredKit = data.quiz_submission.preferred_kit.toUpperCase().trim() as 'LAUNCH' | 'GROWTH'
         setSelectedKitType(preferredKit)
+      } else if (data.available_kit_types && data.available_kit_types.length > 0) {
+        // If no preferred_kit, use the first available kit type
+        setSelectedKitType(data.available_kit_types[0])
       } else if (data.kit_type) {
         // Otherwise use kit_type from existing user data
-        setSelectedKitType(data.kit_type)
+        setSelectedKitType(data.kit_type.toUpperCase().trim() as 'LAUNCH' | 'GROWTH')
       }
       
       setStep('user-found')
@@ -83,36 +84,195 @@ export default function EmailLoginFlow() {
     }
   }
 
-  const handleContinue = () => {
-    // Use selected kit type (either from userData or user selection)
-    const kitType = selectedKitType || userData?.kit_type
+  const handleContinue = async () => {
+    setIsLoading(true)
+    setError(null)
     
-    if (!userData || !kitType) {
+    if (!userData) {
+      setError('User data not found. Please try again.')
+      setIsLoading(false)
+      return
+    }
+    
+    // Determine kit type: prefer selectedKitType, then preferred_kit, then userData.kit_type
+    // Also check the Select value in case selectedKitType state is not updated
+    let kitType = selectedKitType
+    
+    // If selectedKitType is empty, try to get it from preferred_kit
+    if (!kitType || kitType === '') {
+      if (userData.quiz_submission?.preferred_kit) {
+        kitType = userData.quiz_submission.preferred_kit.toUpperCase().trim() as 'LAUNCH' | 'GROWTH'
+      } else if (userData.kit_type) {
+        kitType = userData.kit_type.toUpperCase().trim() as 'LAUNCH' | 'GROWTH'
+      }
+    }
+    
+    if (!kitType || kitType === '') {
       setError('Please select a plan to continue.')
+      setIsLoading(false)
       return
     }
 
-    // Store user session in localStorage
+    // Store minimal user session in localStorage (quiz data will be fetched from Supabase)
+    // PRIORITY: Use preferred_kit from quiz_submission first (this is the user's actual plan)
+    // Then fall back to selected kit type, then userData kit_type
+    let preferredKit: 'LAUNCH' | 'GROWTH' | undefined = undefined
+    if (userData.quiz_submission?.preferred_kit) {
+      const rawValue = userData.quiz_submission.preferred_kit
+      const normalized = String(rawValue).toUpperCase().trim()
+      
+      // Handle various formats: "GROWTH", "Growth Kit", "growth", "GROWTH KIT", etc.
+      if (normalized.includes('GROWTH')) {
+        preferredKit = 'GROWTH'
+      } else if (normalized.includes('LAUNCH')) {
+        preferredKit = 'LAUNCH'
+      } else if (normalized === 'GROWTH' || normalized === 'LAUNCH') {
+        preferredKit = normalized as 'LAUNCH' | 'GROWTH'
+      }
+      
+      console.log('Preferred kit from quiz:', {
+        raw: rawValue,
+        normalized,
+        determined: preferredKit
+      })
+    }
+    
+    // Normalize kitType to uppercase and validate
+    let normalizedKitType: 'LAUNCH' | 'GROWTH' | undefined = undefined
+    if (kitType) {
+      const normalized = kitType.toUpperCase().trim()
+      if (normalized === 'LAUNCH' || normalized === 'GROWTH') {
+        normalizedKitType = normalized as 'LAUNCH' | 'GROWTH'
+      }
+    }
+    
+    let normalizedUserKitType: 'LAUNCH' | 'GROWTH' | undefined = undefined
+    if (userData.kit_type) {
+      const normalized = userData.kit_type.toUpperCase().trim()
+      if (normalized === 'LAUNCH' || normalized === 'GROWTH') {
+        normalizedUserKitType = normalized as 'LAUNCH' | 'GROWTH'
+      }
+    }
+    
+    // Final kit type: preferred_kit from quiz submission takes highest priority
+    // This MUST be used if available, as it's the user's actual plan from the quiz
+    let finalKitType: 'LAUNCH' | 'GROWTH'
+    
+    if (preferredKit) {
+      // Use preferred_kit from quiz submission (highest priority)
+      finalKitType = preferredKit
+      console.log('Using preferred_kit from quiz submission:', preferredKit)
+    } else if (normalizedKitType) {
+      // Use selected kit type from form
+      finalKitType = normalizedKitType
+      console.log('Using selected kit type from form:', normalizedKitType)
+    } else if (normalizedUserKitType) {
+      // Use kit_type from user data
+      finalKitType = normalizedUserKitType
+      console.log('Using kit_type from user data:', normalizedUserKitType)
+    } else {
+      // Fallback to LAUNCH (should not happen if preferred_kit exists)
+      finalKitType = 'LAUNCH'
+      console.warn('No kit type found, defaulting to LAUNCH')
+    }
+    
+    // Ensure finalKitType is valid (should always be at this point, but double-check)
+    if (finalKitType !== 'LAUNCH' && finalKitType !== 'GROWTH') {
+      console.error('Unexpected kit type value:', finalKitType, {
+        preferredKit,
+        normalizedKitType,
+        normalizedUserKitType,
+        kitType,
+        userData: userData.kit_type,
+        quiz_submission: userData.quiz_submission?.preferred_kit
+      })
+      // Fallback to LAUNCH if something unexpected happens
+      finalKitType = 'LAUNCH'
+      console.warn('Falling back to LAUNCH kit type')
+    }
+    
+    // Fetch and store server session ID to detect server restarts
+    try {
+      const sessionResponse = await fetch('/api/session/check')
+      const { sessionId } = await sessionResponse.json()
+      if (sessionId) {
+        localStorage.setItem('serverSessionId', sessionId)
+      }
+    } catch (error) {
+      console.error('Error fetching server session:', error)
+    }
+
+    // Normalize email before storing (ensure consistency)
+    const normalizedEmail = email.toLowerCase().trim()
+    
+    // Clear any old onboarding data from previous users to prevent data leakage
+    // This ensures each user starts fresh and doesn't see another user's data
+    localStorage.removeItem('onboarding_LAUNCH')
+    localStorage.removeItem('onboarding_GROWTH')
+    console.log('Cleared old onboarding data from localStorage to prevent data leakage')
+    
+    // Check if user has already completed onboarding for this kit type
+    const hasCompletedOnboarding = userData.onboarding_finished === true
+    
+    // Only store minimal session data - quiz submission will be fetched from Supabase when needed
     const sessionData = {
-      email,
-      name: userData.name || null,
-      kit_type: kitType,
-      kitType: kitType, // Also store as kitType for backward compatibility
-      onboarding_finished: userData.onboarding_finished || false,
+      email: normalizedEmail, // Store normalized email
+      email_address: normalizedEmail, // Also store as email_address for backward compatibility
+      name: userData.name || userData.quiz_submission?.full_name || null,
+      kit_type: finalKitType,
+      kitType: finalKitType, // Also store as kitType for backward compatibility
+      onboarding_finished: hasCompletedOnboarding, // Use actual onboarding status from database
+      quiz_submission_id: userData.quiz_submission?.id || null, // Store quiz submission ID for accurate fetching
+      // Do not store full quiz_submission in localStorage - always fetch from Supabase by ID
     }
     localStorage.setItem('user', JSON.stringify(sessionData))
+    console.log('User session stored with email:', normalizedEmail, 'ID:', sessionData.quiz_submission_id, 'onboarding_finished:', hasCompletedOnboarding)
     localStorage.setItem('isAuthenticated', 'true')
 
     // Redirect based on onboarding status
-    if (userData.onboarding_finished) {
-      // Skip onboarding, go to home or kit page
-      router.push('/home')
+    let redirectPath: string
+    if (hasCompletedOnboarding) {
+      // User has completed onboarding - redirect to dashboard/home
+      redirectPath = '/home'
+      console.log('✅ ONBOARDING ALREADY COMPLETE - Redirecting to dashboard')
     } else {
-      // Go to onboarding Step 1
-      const onboardingPath = kitType === 'LAUNCH'
-        ? '/launch-kit/onboarding/step-1'
-        : '/growth-kit/onboarding/step-1'
-      router.push(onboardingPath)
+      // User needs to complete onboarding - redirect to onboarding Step 1
+      if (finalKitType === 'GROWTH') {
+        redirectPath = '/growth-kit/onboarding/step-1'
+        console.log('✅ GROWTH KIT DETECTED - Redirecting to Growth Kit onboarding')
+      } else if (finalKitType === 'LAUNCH') {
+        redirectPath = '/launch-kit/onboarding/step-1'
+        console.log('✅ LAUNCH KIT DETECTED - Redirecting to Launch Kit onboarding')
+      } else {
+        // This should never happen, but handle it
+        console.error('❌ Invalid finalKitType:', finalKitType, '- Defaulting to Launch Kit')
+        redirectPath = '/launch-kit/onboarding/step-1'
+        finalKitType = 'LAUNCH' // Ensure it's set correctly
+      }
+    }
+    
+    console.log('=== REDIRECT DECISION ===')
+    console.log(`Email: ${email}`)
+    console.log(`Final Kit Type: ${finalKitType}`)
+    console.log(`Onboarding Finished: ${hasCompletedOnboarding}`)
+    console.log(`Redirect Path: ${redirectPath}`)
+    console.log('Kit type determination:', {
+      preferredKit,
+      normalizedKitType,
+      normalizedUserKitType,
+      selectedKitType,
+      quizPreferredKit: userData.quiz_submission?.preferred_kit,
+      quizPreferredKitRaw: userData.quiz_submission?.preferred_kit,
+      userDataKitType: userData.kit_type
+    })
+    console.log('========================')
+    
+    try {
+      router.push(redirectPath)
+    } catch (error) {
+      console.error('Error redirecting:', error)
+      setError('Failed to redirect. Please try again.')
+      setIsLoading(false)
     }
   }
 
@@ -215,17 +375,21 @@ export default function EmailLoginFlow() {
 
               <Field>
                 <FieldLabel htmlFor="kitType" className="text-black">
-                  Your Plan {userData.available_kit_types && userData.available_kit_types.length > 0 ? '' : <span className="text-red-500">*</span>}
+                  Your Plan {userData.quiz_submission?.preferred_kit ? '' : <span className="text-red-500">*</span>}
                 </FieldLabel>
                 <Select
-                  value={selectedKitType || userData.kit_type || ''}
-                  onValueChange={(value) => setSelectedKitType(value as KitType)}
+                  value={selectedKitType || ''}
+                  onValueChange={(value) => {
+                    setSelectedKitType(value as KitType)
+                    setError(null) // Clear any previous errors
+                  }}
+                  disabled={!!userData.quiz_submission?.preferred_kit} // Disable if preferred_kit is set
                 >
                   <SelectTrigger 
                     id="kitType" 
                     className="w-full text-black"
                   >
-                    <SelectValue placeholder={userData.available_kit_types && userData.available_kit_types.length > 0 ? "Select a plan..." : "No plans found"} />
+                    <SelectValue placeholder="Select a plan..." />
                   </SelectTrigger>
                   <SelectContent>
                     {userData.available_kit_types && userData.available_kit_types.length > 0 ? (
@@ -249,18 +413,29 @@ export default function EmailLoginFlow() {
                   </SelectContent>
                 </Select>
                 <FieldDescription className="text-black">
-                  {userData.available_kit_types && userData.available_kit_types.length > 0
+                  {userData.quiz_submission?.preferred_kit
+                    ? `Your plan from quiz: ${userData.quiz_submission.preferred_kit === 'LAUNCH' || userData.quiz_submission.preferred_kit === 'launch' ? 'Launch Kit' : 'Growth Kit'}`
+                    : userData.available_kit_types && userData.available_kit_types.length > 0
                     ? `Plans associated with this email (${userData.available_kit_types.length} available)`
                     : 'Please select a plan to continue'}
                 </FieldDescription>
               </Field>
 
+              {error && (
+                <FieldError>
+                  <div className="rounded-md p-4 bg-red-50">
+                    <p className="text-sm text-red-800">{error}</p>
+                  </div>
+                </FieldError>
+              )}
+
               <Field>
                 <Button
                   onClick={handleContinue}
                   className="w-full"
+                  disabled={isLoading}
                 >
-                  Continue
+                  {isLoading ? 'Loading...' : 'Continue'}
                 </Button>
               </Field>
 

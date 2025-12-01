@@ -17,6 +17,70 @@ export default function GrowthKitBuildTracker({ phases, project }: BuildTrackerP
   // Manage phases state for checklist updates
   const [localPhases, setLocalPhases] = useState<Phase[]>(phases)
 
+  // Check onboarding completion status and update checklist
+  useEffect(() => {
+    const checkAndUpdateOnboarding = () => {
+      if (typeof window !== 'undefined') {
+        try {
+          // Check if onboarding is complete
+          const onboardingData = localStorage.getItem('onboarding_GROWTH')
+          const isOnboardingComplete = onboardingData 
+            ? JSON.parse(onboardingData).onboarding_finished === true
+            : false
+
+          // Update the "Onboarding complete" checklist item in Phase 1
+          if (isOnboardingComplete) {
+            setLocalPhases((prev) => {
+              const updated = prev.map((phase) => {
+                if (phase.phase_number === 1) {
+                  return {
+                    ...phase,
+                    checklist: phase.checklist?.map((item) => {
+                      // Check if this is the onboarding checklist item
+                      if (item.label.toLowerCase().includes('onboarding')) {
+                        return { ...item, is_done: true }
+                      }
+                      return item
+                    }),
+                  }
+                }
+                return phase
+              })
+
+              // Save to localStorage
+              try {
+                const checklistState: Record<number, any[]> = {}
+                updated.forEach((phase) => {
+                  if (phase.checklist) {
+                    checklistState[phase.phase_number] = phase.checklist.map((item) => ({
+                      id: item.id,
+                      is_done: item.is_done,
+                    }))
+                  }
+                })
+                localStorage.setItem('build_tracker_checklist_GROWTH', JSON.stringify(checklistState))
+              } catch (e) {
+                console.error('Error saving checklist state:', e)
+              }
+
+              return updated
+            })
+          }
+        } catch (e) {
+          console.error('Error checking onboarding status:', e)
+        }
+      }
+    }
+
+    // Check immediately
+    checkAndUpdateOnboarding()
+
+    // Also check periodically to catch changes (every 2 seconds)
+    const interval = setInterval(checkAndUpdateOnboarding, 2000)
+
+    return () => clearInterval(interval)
+  }, [])
+
   // Load saved checklist state from localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -32,6 +96,16 @@ export default function GrowthKitBuildTracker({ phases, project }: BuildTrackerP
                   ...phase,
                   checklist: phase.checklist?.map((item) => {
                     const savedItem = savedPhase.find((s: any) => s.id === item.id)
+                    // Don't override onboarding completion if it's already checked
+                    if (item.label.toLowerCase().includes('onboarding')) {
+                      const onboardingData = localStorage.getItem('onboarding_GROWTH')
+                      const isOnboardingComplete = onboardingData 
+                        ? JSON.parse(onboardingData).onboarding_finished === true
+                        : false
+                      if (isOnboardingComplete) {
+                        return { ...item, is_done: true }
+                      }
+                    }
                     return savedItem ? { ...item, is_done: savedItem.is_done } : item
                   }),
                 }
@@ -53,9 +127,23 @@ export default function GrowthKitBuildTracker({ phases, project }: BuildTrackerP
         if (phase.phase_number === phaseNumber) {
           return {
             ...phase,
-            checklist: phase.checklist?.map((item) =>
-              item.id === itemId ? { ...item, is_done: !item.is_done } : item
-            ),
+            checklist: phase.checklist?.map((item) => {
+              // Prevent unchecking onboarding item if onboarding is complete
+              if (item.id === itemId) {
+                if (item.label.toLowerCase().includes('onboarding')) {
+                  const onboardingData = localStorage.getItem('onboarding_GROWTH')
+                  const isOnboardingComplete = onboardingData 
+                    ? JSON.parse(onboardingData).onboarding_finished === true
+                    : false
+                  // If onboarding is complete, keep it checked
+                  if (isOnboardingComplete) {
+                    return { ...item, is_done: true }
+                  }
+                }
+                return { ...item, is_done: !item.is_done }
+              }
+              return item
+            }),
           }
         }
         return phase

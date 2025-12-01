@@ -1,19 +1,57 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useRef } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import { useMockAuth } from '@/hooks/useMockAuth'
 import GrowthKitStep2Form from '@/components/growth-kit/onboarding/Step2Form'
+import { checkOnboardingComplete } from '@/utils/onboarding-check'
 
 export default function GrowthKitStep2Page() {
   const router = useRouter()
+  const pathname = usePathname()
   const { user, isAuthenticated, isLoading } = useMockAuth()
+  const hasRedirected = useRef(false)
 
   useEffect(() => {
-    if (!isLoading && (!isAuthenticated || user?.kitType !== 'GROWTH')) {
-      router.push('/')
+    // Prevent multiple redirects
+    if (hasRedirected.current) {
+      return
     }
-  }, [isAuthenticated, isLoading, user, router])
+    
+    if (!isLoading) {
+      if (!isAuthenticated) {
+        // Only redirect if not already on login page
+        if (pathname !== '/') {
+          hasRedirected.current = true
+          router.push('/')
+        }
+        return
+      }
+      // Check database to see if client exists (onboarding complete)
+      if (user?.email) {
+        checkOnboardingComplete(user.email).then(isComplete => {
+          if (isComplete || user?.onboarding_finished === true) {
+            hasRedirected.current = true
+            router.push('/home')
+          }
+        })
+        return
+      }
+      
+      // Check both kitType and kit_type for compatibility
+      const userKitType = user?.kitType || user?.kit_type
+      if (userKitType && userKitType !== 'GROWTH') {
+        // Redirect to correct kit's onboarding only if not already there
+        const correctPath = userKitType === 'LAUNCH'
+          ? '/launch-kit/onboarding/step-1'
+          : '/'
+        if (pathname !== correctPath) {
+          hasRedirected.current = true
+          router.push(correctPath)
+        }
+      }
+    }
+  }, [isAuthenticated, isLoading, user, router, pathname])
 
   if (isLoading) {
     return (
@@ -23,8 +61,23 @@ export default function GrowthKitStep2Page() {
     )
   }
 
-  if (!isAuthenticated || user?.kitType !== 'GROWTH') {
-    return null
+  // Wait for user to be loaded before checking kitType
+  if (!isAuthenticated || !user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-black font-medium">Loading...</div>
+      </div>
+    )
+  }
+
+  // Check kitType after user is loaded
+  const userKitType = user?.kitType || user?.kit_type
+  if (userKitType !== 'GROWTH') {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-black font-medium">Loading...</div>
+      </div>
+    )
   }
 
   // Get mock step data and check step locking

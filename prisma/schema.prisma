@@ -1,0 +1,147 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model OnboardingAnswer {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  answers     Json
+  completedAt DateTime @default(now()) @map("completed_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  client      Client?
+
+  @@index([userId])
+  @@map("onboarding_answers")
+}
+
+model Client {
+  id                  String             @id @default(uuid())
+  userId              String             @map("user_id")
+  name                String?
+  email               String
+  plan                KitType
+  onboardingAnswersId String?            @unique @map("onboarding_answers_id")
+  nextFromUs          String?            @map("next_from_us") @db.Text
+  nextFromYou         String?            @map("next_from_you") @db.Text
+  currentDayOf14      Int?               @map("current_day_of_14")
+  onboardingPercent   Int                @default(0) @map("onboarding_percent")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  phaseStates         ClientPhaseState[]
+  onboardingAnswer    OnboardingAnswer?  @relation(fields: [onboardingAnswersId], references: [id])
+  tasks               Task[]
+
+  @@unique([userId, plan])
+  @@index([userId])
+  @@index([email])
+  @@index([plan])
+  @@map("clients")
+}
+
+model ClientPhaseState {
+  id          String    @id @default(uuid())
+  clientId    String    @map("client_id")
+  phaseId     String    @map("phase_id")
+  status      Status    @default(NOT_STARTED)
+  checklist   Json
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  client      Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, phaseId])
+  @@index([clientId])
+  @@index([phaseId])
+  @@index([status])
+  @@map("client_phase_state")
+}
+
+model QuizSubmission {
+  id             String   @id @default(uuid())
+  email          String
+  preferredKit   KitType? @map("preferred_kit")
+  createdAt      DateTime @default(now()) @map("created_at")
+  audience       Json     @map("audience")
+  brandGoals     Json     @map("brand_goals")
+  brandName      String   @map("brand_name")
+  brandStyle     String   @map("brand_style")
+  fullName       String   @map("full_name")
+  logoStatus     String   @map("logo_status")
+  onlinePresence String   @map("online_presence")
+  phoneNumber    String?  @map("phone_number")
+  timeline       String
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([email])
+  @@map("quiz_submissions")
+}
+
+model Task {
+  id          String     @id @default(uuid())
+  clientId    String     @map("client_id")
+  title       String     @db.Text
+  description String?    @db.Text
+  type        tasks_type @default(OTHER)
+  status      TaskStatus @default(PENDING)
+  dueDate     DateTime?  @map("due_date")
+  completedAt DateTime?  @map("completed_at")
+  attachments Json?
+  metadata    Json?
+  createdBy   String?    @map("created_by")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  client      Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([status])
+  @@index([type])
+  @@index([dueDate])
+  @@map("tasks")
+}
+
+model admins {
+  id         String   @id
+  user_id    String?
+  email      String   @unique
+  name       String
+  password   String?
+  role       String   @default("admin")
+  created_at DateTime @default(now())
+  updated_at DateTime
+
+  @@index([email])
+  @@index([user_id])
+}
+
+enum KitType {
+  LAUNCH
+  GROWTH
+}
+
+enum Status {
+  NOT_STARTED
+  IN_PROGRESS
+  WAITING_ON_CLIENT
+  DONE
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum tasks_type {
+  UPLOAD_FILE
+  SEND_INFO
+  PROVIDE_DETAILS
+  REVIEW
+  OTHER
+}

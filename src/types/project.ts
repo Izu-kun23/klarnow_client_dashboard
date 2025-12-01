@@ -8,6 +8,34 @@ export type Status =
 // Kit type
 export type KitType = 'LAUNCH' | 'GROWTH'
 
+// Phase state stored in JSONB
+export interface PhaseState {
+  status: 'NOT_STARTED' | 'IN_PROGRESS' | 'WAITING_ON_CLIENT' | 'DONE'
+  started_at?: string | null
+  completed_at?: string | null
+  checklist: Record<string, boolean> // { "label": true/false }
+}
+
+// Merged phase (structure + state)
+export interface MergedPhase {
+  phase_id: string
+  phase_number: number
+  title: string
+  subtitle: string | null
+  day_range: string
+  status: PhaseState['status']
+  started_at: string | null
+  completed_at: string | null
+  checklist: Array<{
+    label: string
+    is_done: boolean
+  }>
+  links?: Array<{
+    label: string
+    url?: string
+  }>
+}
+
 // Project interface
 export interface Project {
   id: string
@@ -18,6 +46,7 @@ export interface Project {
   current_day_of_14: number | null
   next_from_us: string | null
   next_from_you: string | null
+  phases_state: Record<string, PhaseState> | null // JSONB column
   created_at: string
   updated_at: string
 }
@@ -43,7 +72,7 @@ export interface OnboardingStep {
 // Phase
 export interface Phase {
   id: string
-  project_id: string
+  project_id?: string
   phase_number: number
   phase_id: string
   title: string
@@ -52,8 +81,11 @@ export interface Phase {
   status: Status
   started_at: string | null
   completed_at: string | null
-  created_at: string
-  updated_at: string
+  created_at?: string
+  updated_at?: string
+  checklist_items?: ChecklistItem[]
+  phase_links?: PhaseLink[]
+  // Legacy support
   checklist?: ChecklistItem[]
   links?: PhaseLink[]
 }
@@ -82,7 +114,12 @@ export interface PhaseLink {
 // Project with relations (for API responses)
 export interface ProjectWithRelations extends Project {
   onboarding_steps: OnboardingStep[]
-  phases: Phase[]
+  phases: Phase[] // For relational approach (phases table)
+}
+
+// Project with merged phases (for client dashboard)
+export interface ProjectWithMergedPhases extends Project {
+  phases: MergedPhase[] // Merged structure + state
 }
 
 // Home widget data

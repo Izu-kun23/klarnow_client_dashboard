@@ -1,8 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ProjectWithRelations, OnboardingStep } from '@/types/project'
+import { fetchQuizSubmission, mapQuizToStep3Fields } from '@/utils/fetchQuizSubmission'
+import { mergeQuizDataWithFormData } from '@/utils/onboarding-save'
 import Link from 'next/link'
 
 interface Step3FormProps {
@@ -39,20 +41,8 @@ export default function GrowthKitStep3Form({ project, step }: Step3FormProps) {
   const [isComplete, setIsComplete] = useState(false)
   
   const getStepData = () => {
-    if (step?.fields) return step.fields
-    
-    const userData = localStorage.getItem('user')
-    if (userData) {
-      const user = JSON.parse(userData)
-      const onboardingData = localStorage.getItem(`onboarding_${user.kitType}`)
-      if (onboardingData) {
-        const onboarding = JSON.parse(onboardingData)
-        const step3 = onboarding.steps?.find((s: any) => s.step_number === 3)
-        if (step3?.fields) return step3.fields
-      }
-    }
-    
-    return {
+    // Base empty form structure with all required fields
+    const baseForm: FormData = {
       current_site_platform: '',
       how_get_site_access: '',
       domain_registered: '',
@@ -73,9 +63,64 @@ export default function GrowthKitStep3Form({ project, step }: Step3FormProps) {
       dates_offline: '',
       main_traffic_focus: [],
     }
+    
+    // If step.fields exists, merge it with base form
+    if (step?.fields && typeof step.fields === 'object') {
+      return { ...baseForm, ...step.fields }
+    }
+    
+    return baseForm
   }
   
   const [formData, setFormData] = useState<FormData>(getStepData())
+
+  // Fetch and pre-fill quiz submission data from Supabase on mount
+  useEffect(() => {
+    const loadQuizData = async () => {
+      try {
+        const userData = localStorage.getItem('user')
+        if (!userData) return
+
+        const user = JSON.parse(userData)
+        
+        // Prefer ID over email for accuracy
+        const quizSubmissionId = user.quiz_submission_id
+        const userEmail = user.email || user.email_address
+
+        if (!quizSubmissionId && !userEmail) {
+          console.warn('No quiz submission ID or email found in user data')
+          return
+        }
+
+        // Fetch by ID (preferred) or email (fallback)
+        const quizSubmission = await fetchQuizSubmission(quizSubmissionId, userEmail)
+        
+        if (quizSubmission) {
+          console.log('Quiz submission loaded for Step 3:', {
+            id: quizSubmission.id,
+            name: quizSubmission.full_name
+          })
+          // Map quiz data to Step 3 fields
+          const mappedFields = mapQuizToStep3Fields(quizSubmission, 'GROWTH')
+          
+          // Pre-fill all matching fields from quiz submission
+          // Use merge utility to ensure prefilled data overwrites empty strings
+          setFormData(prev => {
+            const merged = mergeQuizDataWithFormData(prev, mappedFields, true)
+            console.log('[Growth Step3] Pre-filled form fields from quiz submission:', {
+              mappedFields: Object.keys(mappedFields),
+              mergedFields: Object.keys(merged)
+            })
+            return merged
+          })
+        }
+      } catch (error) {
+        console.error('Error loading quiz data from Supabase:', error)
+      }
+    }
+
+    loadQuizData()
+  }, [])
 
   const requiredFields = [
     formData.current_site_platform,
@@ -143,6 +188,36 @@ export default function GrowthKitStep3Form({ project, step }: Step3FormProps) {
         onboarding_percent: 0
       }
 
+      // Before saving, ensure prefilled quiz data is merged (in case it wasn't loaded yet)
+      let allFields = { ...formData }
+      
+      // Re-fetch and merge quiz data to ensure nothing is missing
+      try {
+        const userData = localStorage.getItem('user')
+        if (userData) {
+          const user = JSON.parse(userData)
+          const quizSubmissionId = user.quiz_submission_id
+          const userEmail = user.email || user.email_address
+          
+          if (quizSubmissionId || userEmail) {
+            const quizSubmission = await fetchQuizSubmission(quizSubmissionId, userEmail)
+            if (quizSubmission) {
+              const mappedFields = mapQuizToStep3Fields(quizSubmission, kitType)
+              allFields = mergeQuizDataWithFormData(allFields, mappedFields, true)
+              console.log('[Growth Step3] Re-merged quiz data before saving')
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('[Growth Step3] Could not re-merge quiz data before saving:', error)
+      }
+      
+      console.log('[Growth Step3] Saving all fields to localStorage:', {
+        fieldCount: Object.keys(allFields).length,
+        fields: Object.keys(allFields),
+        hasPrefilledData: Object.values(allFields).some(v => v && v !== '' && (Array.isArray(v) ? v.length > 0 : true))
+      })
+      
       const stepDataLocal = {
         id: `step-3-${Date.now()}`,
         step_number: 3,
@@ -151,7 +226,7 @@ export default function GrowthKitStep3Form({ project, step }: Step3FormProps) {
         required_fields_total: totalRequired,
         required_fields_completed: completedCount,
         time_estimate: 'About 7 minutes',
-        fields: formData,
+        fields: allFields, // Save ALL fields including prefilled ones
         started_at: step?.started_at || new Date().toISOString(),
         completed_at: allFieldsComplete ? new Date().toISOString() : null,
       }
@@ -191,6 +266,58 @@ export default function GrowthKitStep3Form({ project, step }: Step3FormProps) {
               throw new Error('Email not found. Please log in again.')
             }
 
+            // Before sending, re-merge quiz data for all steps to ensure nothing is missing
+            let quizSubmission = null
+            const quizSubmissionId = user.quiz_submission_id
+            const userEmail = user.email || user.email_address
+            
+            if (quizSubmissionId || userEmail) {
+              try {
+                quizSubmission = await fetchQuizSubmission(quizSubmissionId, userEmail)
+              } catch (error) {
+                console.warn('[Growth Step3] Could not fetch quiz submission for final merge:', error)
+              }
+            }
+            
+            // Ensure all steps have complete field data before sending
+            const stepsToSend = await Promise.all(allSteps.map(async (s: any) => {
+              let completeFields = { ...(s.fields || {}) }
+              
+              // Re-merge quiz data for each step if available
+              if (quizSubmission) {
+                let mappedFields: Record<string, any> = {}
+                if (s.step_number === 1) {
+                  const { mapQuizToOnboardingFields } = await import('@/utils/fetchQuizSubmission')
+                  mappedFields = mapQuizToOnboardingFields(quizSubmission, kitType)
+                } else if (s.step_number === 2) {
+                  const { mapQuizToStep2Fields } = await import('@/utils/fetchQuizSubmission')
+                  mappedFields = mapQuizToStep2Fields(quizSubmission, kitType)
+                } else if (s.step_number === 3) {
+                  const { mapQuizToStep3Fields } = await import('@/utils/fetchQuizSubmission')
+                  mappedFields = mapQuizToStep3Fields(quizSubmission, kitType)
+                }
+                
+                // Merge quiz data to ensure all prefilled fields are included
+                completeFields = mergeQuizDataWithFormData(completeFields, mappedFields, true)
+              }
+              
+              console.log(`[Growth Step3] Sending step ${s.step_number} with ${Object.keys(completeFields).length} fields:`, Object.keys(completeFields))
+              
+              return {
+                step_number: s.step_number,
+                title: s.title,
+                status: s.status,
+                required_fields_total: s.required_fields_total,
+                required_fields_completed: s.required_fields_completed,
+                time_estimate: s.time_estimate,
+                fields: completeFields, // ALL fields including prefilled ones
+                started_at: s.started_at,
+                completed_at: s.completed_at || (s.status === 'DONE' ? new Date().toISOString() : null)
+              }
+            }))
+            
+            console.log('[Growth Step3] Sending all 3 steps to database with complete field data (re-merged with quiz data)')
+            
             const response = await fetch('/api/onboarding/complete', {
               method: 'POST',
               headers: {
@@ -199,27 +326,31 @@ export default function GrowthKitStep3Form({ project, step }: Step3FormProps) {
               body: JSON.stringify({
                 email,
                 kit_type: kitType,
-                steps: allSteps.map((s: any) => ({
-                  step_number: s.step_number,
-                  title: s.title,
-                  status: s.status,
-                  required_fields_total: s.required_fields_total,
-                  required_fields_completed: s.required_fields_completed,
-                  time_estimate: s.time_estimate,
-                  fields: s.fields,
-                  started_at: s.started_at,
-                  completed_at: s.completed_at || (s.status === 'DONE' ? new Date().toISOString() : null)
-                }))
+                steps: stepsToSend
               }),
             })
 
             if (!response.ok) {
-              const errorData = await response.json().catch(() => ({ error: 'Failed to save onboarding' }))
-              console.error('Failed to save onboarding to database:', errorData)
+              let errorData: any = {}
+              try {
+                const text = await response.text()
+                errorData = text ? JSON.parse(text) : { error: `HTTP ${response.status}: ${response.statusText}` }
+              } catch (parseError) {
+                errorData = { 
+                  error: `HTTP ${response.status}: ${response.statusText}`,
+                  rawResponse: await response.text().catch(() => 'Unable to read response')
+                }
+              }
+              console.error('Failed to save onboarding to database:', {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorData
+              })
               // Don't block success - data is saved in localStorage
               // Just log the error
             } else {
-              console.log('Onboarding saved to database successfully!')
+              const result = await response.json()
+              console.log('Onboarding saved to database successfully!', result)
             }
           } else {
             console.warn('Not all 3 steps found in localStorage, skipping database save')
@@ -231,6 +362,10 @@ export default function GrowthKitStep3Form({ project, step }: Step3FormProps) {
 
         // Show success state only when all fields are complete
         setIsComplete(true)
+        // Redirect to home dashboard after onboarding completion
+        setTimeout(() => {
+          router.push('/home')
+        }, 2000)
       } else {
         router.push('/growth-kit')
       }

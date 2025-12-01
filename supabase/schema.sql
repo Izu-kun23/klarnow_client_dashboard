@@ -284,102 +284,10 @@ CREATE POLICY "Admins can update all steps"
     )
   );
 
--- Phases Table
-CREATE TABLE IF NOT EXISTS phases (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  phase_number INTEGER NOT NULL CHECK (phase_number >= 1 AND phase_number <= 4),
-  phase_id TEXT NOT NULL, -- 'PHASE_1', 'PHASE_2', etc.
-  title TEXT NOT NULL,
-  subtitle TEXT,
-  day_range TEXT NOT NULL, -- e.g., "Days 0-2"
-  status TEXT NOT NULL DEFAULT 'NOT_STARTED' CHECK (status IN ('NOT_STARTED', 'IN_PROGRESS', 'WAITING_ON_CLIENT', 'DONE')),
-  
-  -- Timestamps
-  started_at TIMESTAMPTZ,
-  completed_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  
-  -- Constraints
-  UNIQUE(project_id, phase_number)
-);
-
--- Enable RLS
-ALTER TABLE phases ENABLE ROW LEVEL SECURITY;
-
--- RLS Policies
-CREATE POLICY "Users can view phases for their projects"
-  ON phases FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM projects 
-      WHERE projects.id = phases.project_id 
-      AND projects.user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Admins can view all phases"
-  ON phases FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM admins 
-      WHERE user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Admins can update all phases"
-  ON phases FOR UPDATE
-  USING (
-    EXISTS (
-      SELECT 1 FROM admins 
-      WHERE user_id = auth.uid()
-    )
-  );
-
--- Checklist Items Table
-CREATE TABLE IF NOT EXISTS checklist_items (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  phase_id UUID NOT NULL REFERENCES phases(id) ON DELETE CASCADE,
-  label TEXT NOT NULL,
-  is_done BOOLEAN DEFAULT FALSE,
-  sort_order INTEGER DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Enable RLS
-ALTER TABLE checklist_items ENABLE ROW LEVEL SECURITY;
-
--- RLS Policies
-CREATE POLICY "Users can view checklist items for their projects"
-  ON checklist_items FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM phases 
-      JOIN projects ON projects.id = phases.project_id
-      WHERE phases.id = checklist_items.phase_id 
-      AND projects.user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Admins can view all checklist items"
-  ON checklist_items FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM admins 
-      WHERE user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Admins can update all checklist items"
-  ON checklist_items FOR UPDATE
-  USING (
-    EXISTS (
-      SELECT 1 FROM admins 
-      WHERE user_id = auth.uid()
-    )
-  );
+-- Phases and Checklist Items tables are defined in separate files:
+-- - phases_table.sql (phases table and RLS policies)
+-- - checklist_items_table.sql (checklist_items table and RLS policies)
+-- Run those files after this schema.sql file
 
 -- Phase Links Table
 CREATE TABLE IF NOT EXISTS phase_links (
@@ -473,56 +381,56 @@ BEGIN
     (p_project_id, 3, 'STEP_3', 'Switch on the site', 'About 5 minutes', 4);
   
   -- Insert phases and get their IDs
-  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range)
+  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range, status)
   VALUES
-    (p_project_id, 1, 'PHASE_1', 'Inputs & clarity', 'Lock the message and plan.', 'Days 0-2')
+    (p_project_id, 1, 'PHASE_1', 'Inputs & clarity', 'Lock the message and plan.', 'Days 0-2', 'NOT_STARTED')
   RETURNING id INTO v_phase_1_id;
   
-  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range)
+  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range, status)
   VALUES
-    (p_project_id, 2, 'PHASE_2', 'Words that sell', 'We write your 3 pages.', 'Days 3-5')
+    (p_project_id, 2, 'PHASE_2', 'Words that sell', 'We write your 3 pages.', 'Days 3-5', 'NOT_STARTED')
   RETURNING id INTO v_phase_2_id;
   
-  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range)
+  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range, status)
   VALUES
-    (p_project_id, 3, 'PHASE_3', 'Design & build', 'We turn copy into a 3 page site.', 'Days 6-10')
+    (p_project_id, 3, 'PHASE_3', 'Design & build', 'We turn copy into a 3 page site.', 'Days 6-10', 'NOT_STARTED')
   RETURNING id INTO v_phase_3_id;
   
-  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range)
+  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range, status)
   VALUES
-    (p_project_id, 4, 'PHASE_4', 'Test', 'We connect domain, test and go live.', 'Days 11-14')
+    (p_project_id, 4, 'PHASE_4', 'Test & launch', 'We connect domain, test and go live.', 'Days 11-14', 'NOT_STARTED')
   RETURNING id INTO v_phase_4_id;
   
   -- Insert checklist items for Phase 1
-  INSERT INTO checklist_items (phase_id, label, sort_order)
+  INSERT INTO checklist_items (phase_id, label, sort_order, is_done)
   VALUES
-    (v_phase_1_id, 'Onboarding steps completed', 1),
-    (v_phase_1_id, 'Brand / strategy call completed', 2),
-    (v_phase_1_id, 'Simple 14 day plan agreed', 3);
+    (v_phase_1_id, 'Onboarding steps completed', 1, false),
+    (v_phase_1_id, 'Brand / strategy call completed', 2, false),
+    (v_phase_1_id, 'Simple 14 day plan agreed', 3, false);
   
   -- Insert checklist items for Phase 2
-  INSERT INTO checklist_items (phase_id, label, sort_order)
+  INSERT INTO checklist_items (phase_id, label, sort_order, is_done)
   VALUES
-    (v_phase_2_id, 'Draft homepage copy ready', 1),
-    (v_phase_2_id, 'Draft offer / services page ready', 2),
-    (v_phase_2_id, 'Draft contact / about copy ready', 3),
-    (v_phase_2_id, 'You reviewed and approved copy', 4);
+    (v_phase_2_id, 'Draft homepage copy ready', 1, false),
+    (v_phase_2_id, 'Draft offer / services page ready', 2, false),
+    (v_phase_2_id, 'Draft contact / about copy ready', 3, false),
+    (v_phase_2_id, 'You reviewed and approved copy', 4, false);
   
   -- Insert checklist items for Phase 3
-  INSERT INTO checklist_items (phase_id, label, sort_order)
+  INSERT INTO checklist_items (phase_id, label, sort_order, is_done)
   VALUES
-    (v_phase_3_id, 'Site layout built for all 3 pages', 1),
-    (v_phase_3_id, 'Mobile checks done', 2),
-    (v_phase_3_id, 'Testimonials and proof added', 3),
-    (v_phase_3_id, 'Staging link shared with you', 4);
+    (v_phase_3_id, 'Site layout built for all 3 pages', 1, false),
+    (v_phase_3_id, 'Mobile checks done', 2, false),
+    (v_phase_3_id, 'Testimonials and proof added', 3, false),
+    (v_phase_3_id, 'Staging link shared with you', 4, false);
   
   -- Insert checklist items for Phase 4
-  INSERT INTO checklist_items (phase_id, label, sort_order)
+  INSERT INTO checklist_items (phase_id, label, sort_order, is_done)
   VALUES
-    (v_phase_4_id, 'Forms tested', 1),
-    (v_phase_4_id, 'Domain connected', 2),
-    (v_phase_4_id, 'Final tweaks applied', 3),
-    (v_phase_4_id, 'Loom walkthrough recorded and shared', 4);
+    (v_phase_4_id, 'Forms tested', 1, false),
+    (v_phase_4_id, 'Domain connected', 2, false),
+    (v_phase_4_id, 'Final tweaks applied', 3, false),
+    (v_phase_4_id, 'Loom walkthrough recorded and shared', 4, false);
 END;
 $$ LANGUAGE plpgsql;
 
@@ -543,65 +451,67 @@ BEGIN
     (p_project_id, 3, 'STEP_3', 'Systems and launch', 'About 7 minutes', 10);
   
   -- Insert phases and get their IDs
-  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range)
+  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range, status)
   VALUES
-    (p_project_id, 1, 'PHASE_1', 'Strategy locked in', 'Offer, goal and funnel map agreed.', 'Days 0-2')
+    (p_project_id, 1, 'PHASE_1', 'Strategy locked in', 'Offer, goal and funnel map agreed.', 'Days 0-2', 'NOT_STARTED')
   RETURNING id INTO v_phase_1_id;
   
-  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range)
+  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range, status)
   VALUES
-    (p_project_id, 2, 'PHASE_2', 'Copy & email engine', 'We write your site copy and 5 emails.', 'Days 3-5')
+    (p_project_id, 2, 'PHASE_2', 'Copy & email engine', 'We write your site copy and 5 emails.', 'Days 3-5', 'NOT_STARTED')
   RETURNING id INTO v_phase_2_id;
   
-  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range)
+  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range, status)
   VALUES
-    (p_project_id, 3, 'PHASE_3', 'Build the funnel', 'Pages, lead magnet and blog hub built.', 'Days 6-10')
+    (p_project_id, 3, 'PHASE_3', 'Build the funnel', 'Pages, lead magnet and blog hub built.', 'Days 6-10', 'NOT_STARTED')
   RETURNING id INTO v_phase_3_id;
   
-  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range)
+  INSERT INTO phases (project_id, phase_number, phase_id, title, subtitle, day_range, status)
   VALUES
-    (p_project_id, 4, 'PHASE_4', 'Test & handover', 'We test the full journey and go live.', 'Days 11-14')
+    (p_project_id, 4, 'PHASE_4', 'Test, launch & handover', 'We test the full journey and go live.', 'Days 11-14', 'NOT_STARTED')
   RETURNING id INTO v_phase_4_id;
   
   -- Insert checklist items for Phase 1
-  INSERT INTO checklist_items (phase_id, label, sort_order)
+  INSERT INTO checklist_items (phase_id, label, sort_order, is_done)
   VALUES
-    (v_phase_1_id, 'Onboarding complete', 1),
-    (v_phase_1_id, 'Strategy / funnel call done', 2),
-    (v_phase_1_id, 'Main offer + 90 day goal confirmed', 3),
-    (v_phase_1_id, 'Simple funnel map agreed', 4);
+    (v_phase_1_id, 'Onboarding complete', 1, false),
+    (v_phase_1_id, 'Strategy / funnel call done', 2, false),
+    (v_phase_1_id, 'Main offer + 90 day goal confirmed', 3, false),
+    (v_phase_1_id, 'Simple funnel map agreed', 4, false);
   
   -- Insert checklist items for Phase 2
-  INSERT INTO checklist_items (phase_id, label, sort_order)
+  INSERT INTO checklist_items (phase_id, label, sort_order, is_done)
   VALUES
-    (v_phase_2_id, 'Draft website copy ready', 1),
-    (v_phase_2_id, 'Draft 5-email nurture sequence ready', 2),
-    (v_phase_2_id, 'You reviewed and approved copy', 3),
-    (v_phase_2_id, 'Any changes locked in', 4);
+    (v_phase_2_id, 'Draft website copy ready', 1, false),
+    (v_phase_2_id, 'Draft 5-email nurture sequence ready', 2, false),
+    (v_phase_2_id, 'You reviewed and approved copy', 3, false),
+    (v_phase_2_id, 'Any changes locked in', 4, false);
   
   -- Insert checklist items for Phase 3
-  INSERT INTO checklist_items (phase_id, label, sort_order)
+  INSERT INTO checklist_items (phase_id, label, sort_order, is_done)
   VALUES
-    (v_phase_3_id, '4-6 page site built on staging', 1),
-    (v_phase_3_id, 'Lead magnet page + thank you page built', 2),
-    (v_phase_3_id, 'Opt-in forms wired to email platform', 3),
-    (v_phase_3_id, 'Blog hub and 1-2 starter posts set up', 4),
-    (v_phase_3_id, 'Staging link shared', 5);
+    (v_phase_3_id, '4-6 page site built on staging', 1, false),
+    (v_phase_3_id, 'Lead magnet page + thank you page built', 2, false),
+    (v_phase_3_id, 'Opt-in forms wired to your email platform', 3, false),
+    (v_phase_3_id, 'Blog hub and 1-2 starter posts set up', 4, false),
+    (v_phase_3_id, 'Staging link shared', 5, false);
   
   -- Insert checklist items for Phase 4
-  INSERT INTO checklist_items (phase_id, label, sort_order)
+  INSERT INTO checklist_items (phase_id, label, sort_order, is_done)
   VALUES
-    (v_phase_4_id, 'Funnel tested from first visit to booked call', 1),
-    (v_phase_4_id, 'Domain connected', 2),
-    (v_phase_4_id, 'Tracking checked (Analytics / pixels)', 3),
-    (v_phase_4_id, '5-email sequence switched on', 4),
-    (v_phase_4_id, 'Loom walkthrough recorded and shared', 5);
+    (v_phase_4_id, 'Funnel tested from first visit to booked call', 1, false),
+    (v_phase_4_id, 'Domain connected', 2, false),
+    (v_phase_4_id, 'Tracking checked (Analytics / pixels)', 3, false),
+    (v_phase_4_id, '5-email sequence switched on', 4, false),
+    (v_phase_4_id, 'Loom walkthrough recorded and shared', 5, false);
 END;
 $$ LANGUAGE plpgsql;
+
+-- Phase status auto-update functions and triggers are in phases_triggers.sql
+-- Run that file after schema.sql to enable automatic phase status updates
 
 -- Enable Realtime for tables
 ALTER PUBLICATION supabase_realtime ADD TABLE projects;
 ALTER PUBLICATION supabase_realtime ADD TABLE onboarding_steps;
-ALTER PUBLICATION supabase_realtime ADD TABLE phases;
-ALTER PUBLICATION supabase_realtime ADD TABLE checklist_items;
+-- Phases and checklist_items realtime are enabled in their respective table files
 

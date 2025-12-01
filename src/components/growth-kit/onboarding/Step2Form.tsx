@@ -1,8 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ProjectWithRelations, OnboardingStep } from '@/types/project'
+import { fetchQuizSubmission, mapQuizToStep2Fields } from '@/utils/fetchQuizSubmission'
+import { mergeQuizDataWithFormData } from '@/utils/onboarding-save'
 import Link from 'next/link'
 
 interface Step2FormProps {
@@ -41,20 +43,8 @@ export default function GrowthKitStep2Form({ project, step }: Step2FormProps) {
   const [error, setError] = useState<string | null>(null)
   
   const getStepData = () => {
-    if (step?.fields) return step.fields
-    
-    const userData = localStorage.getItem('user')
-    if (userData) {
-      const user = JSON.parse(userData)
-      const onboardingData = localStorage.getItem(`onboarding_${user.kitType}`)
-      if (onboardingData) {
-        const onboarding = JSON.parse(onboardingData)
-        const step2 = onboarding.steps?.find((s: any) => s.step_number === 2)
-        if (step2?.fields) return step2.fields
-      }
-    }
-    
-    return {
+    // Base empty form structure with all required fields
+    const baseForm: FormData = {
       ideal_client_description: '',
       top_5_pains: ['', '', '', '', ''],
       top_5_outcomes: ['', '', '', '', ''],
@@ -77,9 +67,64 @@ export default function GrowthKitStep2Form({ project, step }: Step2FormProps) {
       existing_lead_magnet: '',
       keep_replace_lead_magnet: '',
     }
+    
+    // If step.fields exists, merge it with base form
+    if (step?.fields && typeof step.fields === 'object') {
+      return { ...baseForm, ...step.fields }
+    }
+    
+    return baseForm
   }
   
   const [formData, setFormData] = useState<FormData>(getStepData())
+
+  // Fetch and pre-fill quiz submission data from Supabase on mount
+  useEffect(() => {
+    const loadQuizData = async () => {
+      try {
+        const userData = localStorage.getItem('user')
+        if (!userData) return
+
+        const user = JSON.parse(userData)
+        
+        // Prefer ID over email for accuracy
+        const quizSubmissionId = user.quiz_submission_id
+        const userEmail = user.email || user.email_address
+
+        if (!quizSubmissionId && !userEmail) {
+          console.warn('No quiz submission ID or email found in user data')
+          return
+        }
+
+        // Fetch by ID (preferred) or email (fallback)
+        const quizSubmission = await fetchQuizSubmission(quizSubmissionId, userEmail)
+        
+        if (quizSubmission) {
+          console.log('Quiz submission loaded for Step 2:', {
+            id: quizSubmission.id,
+            name: quizSubmission.full_name
+          })
+          // Map quiz data to Step 2 fields
+          const mappedFields = mapQuizToStep2Fields(quizSubmission, 'GROWTH')
+          
+          // Pre-fill all matching fields from quiz submission
+          // Use merge utility to ensure prefilled data overwrites empty strings
+          setFormData(prev => {
+            const merged = mergeQuizDataWithFormData(prev, mappedFields, true)
+            console.log('[Growth Step2] Pre-filled form fields from quiz submission:', {
+              mappedFields: Object.keys(mappedFields),
+              mergedFields: Object.keys(merged)
+            })
+            return merged
+          })
+        }
+      } catch (error) {
+        console.error('Error loading quiz data from Supabase:', error)
+      }
+    }
+
+    loadQuizData()
+  }, [])
 
   const requiredFields = [
     formData.ideal_client_description,
@@ -169,6 +214,36 @@ export default function GrowthKitStep2Form({ project, step }: Step2FormProps) {
         onboarding_percent: 0
       }
 
+      // Before saving, ensure prefilled quiz data is merged (in case it wasn't loaded yet)
+      let allFields = { ...formData }
+      
+      // Re-fetch and merge quiz data to ensure nothing is missing
+      try {
+        const userData = localStorage.getItem('user')
+        if (userData) {
+          const user = JSON.parse(userData)
+          const quizSubmissionId = user.quiz_submission_id
+          const userEmail = user.email || user.email_address
+          
+          if (quizSubmissionId || userEmail) {
+            const quizSubmission = await fetchQuizSubmission(quizSubmissionId, userEmail)
+            if (quizSubmission) {
+              const mappedFields = mapQuizToStep2Fields(quizSubmission, kitType)
+              allFields = mergeQuizDataWithFormData(allFields, mappedFields, true)
+              console.log('[Growth Step2] Re-merged quiz data before saving')
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('[Growth Step2] Could not re-merge quiz data before saving:', error)
+      }
+      
+      console.log('[Growth Step2] Saving all fields to localStorage:', {
+        fieldCount: Object.keys(allFields).length,
+        fields: Object.keys(allFields),
+        hasPrefilledData: Object.values(allFields).some(v => v && v !== '' && (Array.isArray(v) ? v.length > 0 : true))
+      })
+      
       const stepDataLocal = {
         id: `step-2-${Date.now()}`,
         step_number: 2,
@@ -177,7 +252,7 @@ export default function GrowthKitStep2Form({ project, step }: Step2FormProps) {
         required_fields_total: totalRequired,
         required_fields_completed: completedCount,
         time_estimate: 'About 10 minutes',
-        fields: formData,
+        fields: allFields, // Save ALL fields including prefilled ones
         started_at: step?.started_at || new Date().toISOString(),
         completed_at: isComplete ? new Date().toISOString() : null,
       }

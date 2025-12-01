@@ -13,6 +13,19 @@ export default function GrowthKitBuildTrackerPage() {
   useEffect(() => {
     if (!isLoading && (!isAuthenticated || user?.kitType !== 'GROWTH')) {
       router.push('/')
+      return
+    }
+
+    // Redirect to onboarding if not complete
+    if (!isLoading && isAuthenticated && user) {
+      const onboardingData = localStorage.getItem('onboarding_GROWTH')
+      const isOnboardingComplete = onboardingData 
+        ? JSON.parse(onboardingData).onboarding_finished === true
+        : false
+      
+      if (!isOnboardingComplete) {
+        router.push('/growth-kit/onboarding/step-1')
+      }
     }
   }, [isAuthenticated, isLoading, user, router])
 

@@ -1,56 +1,30 @@
 import { NextResponse } from 'next/server'
-import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { prisma } from '@/lib/prisma'
 
 /**
  * GET /api/quiz-submissions/my-submission
- * Fetches the latest quiz submission for the authenticated user's email
+ * Fetches quiz submission by ID (preferred) or email (fallback)
  * This endpoint allows users to fetch their own quiz submission data
  */
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
     const email = searchParams.get('email')
+
+    // Prefer ID over email for accuracy
+    if (id) {
+      return await fetchById(id)
+    }
 
     if (!email) {
       return NextResponse.json(
-        { error: 'Email parameter is required' },
+        { error: 'Either id or email parameter is required' },
         { status: 400 }
       )
     }
 
-    // Use service role for querying
-    const supabaseAdmin = createServiceClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      }
-    )
-
-    // Get the latest quiz submission for this email
-    const { data: submissions, error } = await supabaseAdmin
-      .from('quiz_submissions')
-      .select('*')
-      .eq('email', email.toLowerCase().trim())
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    if (error) {
-      console.error('Error fetching quiz submission:', error)
-      return NextResponse.json(
-        { error: 'Failed to fetch quiz submission' },
-        { status: 500 }
-      )
-    }
-
-    if (!submissions || submissions.length === 0) {
-      return NextResponse.json({ submission: null })
-    }
-
-    return NextResponse.json({ submission: submissions[0] })
+    return await fetchByEmail(email)
   } catch (error: any) {
     console.error('Quiz submission fetch error:', error)
     return NextResponse.json(
@@ -58,5 +32,72 @@ export async function GET(request: Request) {
       { status: 500 }
     )
   }
+}
+
+async function fetchById(id: string) {
+  const submission = await prisma.quizSubmission.findUnique({
+    where: { id }
+  })
+
+  if (!submission) {
+    console.log(`No quiz submission found for ID: ${id}`)
+    return NextResponse.json({ submission: null })
+  }
+
+  console.log(`Quiz submission fetched by ID: ${id} (Email: ${submission.email})`)
+  return NextResponse.json({ 
+    submission: {
+      id: submission.id,
+      full_name: submission.fullName,
+      email: submission.email,
+      phone_number: submission.phoneNumber,
+      brand_name: submission.brandName,
+      logo_status: submission.logoStatus,
+      brand_goals: submission.brandGoals,
+      online_presence: submission.onlinePresence,
+      audience: submission.audience,
+      brand_style: submission.brandStyle,
+      timeline: submission.timeline,
+      preferred_kit: submission.preferredKit,
+      created_at: submission.createdAt.toISOString(),
+      updated_at: submission.updatedAt.toISOString()
+    }
+  })
+}
+
+async function fetchByEmail(email: string) {
+  // Normalize email to ensure exact match
+  const normalizedEmail = email.toLowerCase().trim()
+  
+  // Get the latest quiz submission for this EXACT email
+  const submission = await prisma.quizSubmission.findFirst({
+    where: { email: normalizedEmail },
+    orderBy: { createdAt: 'desc' }
+  })
+
+  if (!submission) {
+    console.log(`No quiz submission found for email: ${normalizedEmail}`)
+    return NextResponse.json({ submission: null })
+  }
+
+  console.log(`Quiz submission fetched for email: ${normalizedEmail} (ID: ${submission.id})`)
+  return NextResponse.json({ 
+    submission: {
+      id: submission.id,
+      full_name: submission.fullName,
+      email: submission.email,
+      phone_number: submission.phoneNumber,
+      brand_name: submission.brandName,
+      logo_status: submission.logoStatus,
+      brand_goals: submission.brandGoals,
+      online_presence: submission.onlinePresence,
+      audience: submission.audience,
+      brand_style: submission.brandStyle,
+      timeline: submission.timeline,
+      preferred_kit: submission.preferredKit,
+      created_at: submission.createdAt.toISOString(),
+      updated_at: submission.updatedAt.toISOString()
+    }
+  })
 }
 

@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
-import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { prisma } from '@/lib/prisma'
+import { getPhaseStructureForKitType } from '@/lib/phase-structure'
+import { createHash } from 'crypto'
 
 interface OnboardingStep {
   step_number: number
@@ -21,7 +23,11 @@ interface CompleteOnboardingRequest {
 
 /**
  * POST /api/onboarding/complete
- * Saves all 3 onboarding steps to Supabase when Step 3 is completed
+ * Database flow using Prisma:
+ * 1. Generates userId from email (mock auth)
+ * 2. Saves onboarding answers to onboarding_answers table
+ * 3. Creates client record in clients table
+ * 4. Initializes client_phase_state entries for all phases
  */
 export async function POST(request: Request) {
   try {
@@ -43,228 +49,200 @@ export async function POST(request: Request) {
       )
     }
 
-    // Validate environment variables
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json(
-        { error: 'Server configuration error: Missing Supabase credentials' },
-        { status: 500 }
-      )
-    }
-
-    const supabaseAdmin = createServiceClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      }
-    )
-
     const emailLower = email.toLowerCase().trim()
 
-    // Get or create project
-    let project
-    console.log('[Onboarding Complete] Checking for existing project...')
-    const { data: existingProject, error: checkError } = await supabaseAdmin
-      .from('projects')
-      .select('id, onboarding_percent')
-      .eq('email', emailLower)
-      .eq('kit_type', kit_type)
-      .maybeSingle()
+    // Step 1: Generate userId from email (mock auth - consistent hash)
+    console.log('[Onboarding Complete] Generating userId from email...')
+    const userId = createHash('sha256').update(emailLower).digest('hex').substring(0, 32)
+    console.log('[Onboarding Complete] Using userId:', userId)
 
-    // Check if error is about table/column not existing
-    if (checkError && (
-      checkError.message?.includes('column') ||
-      checkError.message?.includes('relation') ||
-      checkError.message?.includes('schema cache') ||
-      checkError.message?.includes('does not exist')
-    )) {
-      return NextResponse.json({
-        error: 'Database schema not set up. Please run the migrations to create the projects table.',
-        details: checkError.message,
-        hint: 'Run the SQL in supabase/migrations/create_onboarding_tables.sql in your Supabase SQL editor'
-      }, { status: 500 })
+    // Step 2: Save onboarding answers to onboarding_answers table
+    console.log('[Onboarding Complete] Saving onboarding answers...')
+    
+    // Ensure all fields are included (including prefilled ones)
+    const stepsWithAllFields = steps.map(step => {
+      // Ensure fields object includes ALL fields
+      const completeFields = { ...(step.fields || {}) }
+      const fieldCount = Object.keys(completeFields).length
+      console.log(`[Onboarding Complete] Step ${step.step_number} has ${fieldCount} fields:`, Object.keys(completeFields))
+      
+      return {
+        step_number: step.step_number,
+        title: step.title,
+        status: step.status,
+        required_fields_total: step.required_fields_total,
+        required_fields_completed: step.required_fields_completed,
+        time_estimate: step.time_estimate,
+        fields: completeFields, // ALL fields including prefilled ones
+        started_at: step.started_at,
+        completed_at: step.completed_at
+      }
+    })
+    
+    // Combine all steps into a single answers object
+    const answers = {
+      steps: stepsWithAllFields,
+      kit_type,
+      completed_at: new Date().toISOString()
     }
+    
+    console.log('[Onboarding Complete] Total fields across all steps:', 
+      stepsWithAllFields.reduce((sum, s) => sum + Object.keys(s.fields || {}).length, 0))
 
-    if (existingProject) {
-      console.log('[Onboarding Complete] Using existing project:', existingProject.id)
-      project = existingProject
-    } else {
-      // Create new project
-      console.log('[Onboarding Complete] Creating new project...')
-      const { data: newProject, error: projectError } = await supabaseAdmin
-        .from('projects')
-        .insert({
-          email: emailLower,
-          kit_type,
-          onboarding_percent: 0,
-          onboarding_finished: false
-        })
-        .select('id')
-        .single()
+    // Check if onboarding_answers already exists for this user
+    const existingAnswers = await prisma.onboardingAnswer.findFirst({
+      where: { userId }
+    })
 
-      if (projectError) {
-        console.error('[Onboarding Complete] Error creating project:', projectError)
-        if (projectError.message?.includes('column') || projectError.message?.includes('schema cache')) {
-          return NextResponse.json({
-            error: 'Database schema not set up. The projects table is missing columns.',
-            details: projectError.message,
-            hint: 'Run the SQL in supabase/migrations/create_onboarding_tables.sql in your Supabase SQL editor'
-          }, { status: 500 })
+    let onboardingAnswersId: string
+
+    if (existingAnswers) {
+      // Update existing onboarding answers
+      console.log('[Onboarding Complete] Updating existing onboarding answers...')
+      const updatedAnswers = await prisma.onboardingAnswer.update({
+        where: { id: existingAnswers.id },
+        data: {
+          answers,
+          completedAt: new Date()
         }
-        return NextResponse.json({
-          error: `Failed to create project: ${projectError.message}`,
-          details: projectError
-        }, { status: 500 })
-      }
-
-      if (!newProject) {
-        return NextResponse.json({
-          error: 'Failed to create project: No data returned'
-        }, { status: 500 })
-      }
-
-      project = newProject
-      console.log('[Onboarding Complete] Project created:', project.id)
-    }
-
-    // Calculate total onboarding percent from all steps
-    const totalRequiredFields = steps.reduce((sum, step) => sum + step.required_fields_total, 0)
-    const totalCompletedFields = steps.reduce((sum, step) => sum + step.required_fields_completed, 0)
-    const onboardingPercent = totalRequiredFields > 0
-      ? Math.round((totalCompletedFields / totalRequiredFields) * 100)
-      : 0
-
-    // Save or update each step
-    const savedSteps = []
-    for (const step of steps) {
-      // Check if step already exists
-      const { data: existingStep, error: stepCheckError } = await supabaseAdmin
-        .from('onboarding_steps')
-        .select('id')
-        .eq('project_id', project.id)
-        .eq('step_number', step.step_number)
-        .maybeSingle()
-
-      if (stepCheckError && (
-        stepCheckError.message?.includes('relation') ||
-        stepCheckError.message?.includes('schema cache') ||
-        stepCheckError.message?.includes('does not exist')
-      )) {
-        return NextResponse.json({
-          error: 'Database schema not set up. The onboarding_steps table does not exist.',
-          details: stepCheckError.message,
-          hint: 'Run the SQL in supabase/migrations/create_onboarding_tables.sql in your Supabase SQL editor'
-        }, { status: 500 })
-      }
-
-      let savedStep
-      if (existingStep) {
-        // Update existing step
-        console.log(`[Onboarding Complete] Updating step ${step.step_number}...`)
-        const { data: updatedStep, error: updateError } = await supabaseAdmin
-          .from('onboarding_steps')
-          .update({
-            title: step.title,
-            status: step.status,
-            required_fields_total: step.required_fields_total,
-            required_fields_completed: step.required_fields_completed,
-            time_estimate: step.time_estimate,
-            fields: step.fields,
-            started_at: step.started_at || new Date().toISOString(),
-            completed_at: step.completed_at || (step.status === 'DONE' ? new Date().toISOString() : null),
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existingStep.id)
-          .select()
-          .single()
-
-        if (updateError) {
-          console.error(`[Onboarding Complete] Error updating step ${step.step_number}:`, updateError)
-          return NextResponse.json({
-            error: `Failed to update step ${step.step_number}: ${updateError.message}`,
-            details: updateError
-          }, { status: 500 })
-        }
-
-        savedStep = updatedStep
-      } else {
-        // Create new step
-        console.log(`[Onboarding Complete] Creating step ${step.step_number}...`)
-        const { data: newStep, error: stepError } = await supabaseAdmin
-          .from('onboarding_steps')
-          .insert({
-            project_id: project.id,
-            step_number: step.step_number,
-            title: step.title,
-            status: step.status,
-            required_fields_total: step.required_fields_total,
-            required_fields_completed: step.required_fields_completed,
-            time_estimate: step.time_estimate,
-            fields: step.fields,
-            started_at: step.started_at || new Date().toISOString(),
-            completed_at: step.completed_at || (step.status === 'DONE' ? new Date().toISOString() : null)
-          })
-          .select()
-          .single()
-
-        if (stepError) {
-          console.error(`[Onboarding Complete] Error creating step ${step.step_number}:`, stepError)
-          if (stepError.message?.includes('relation') || stepError.message?.includes('schema cache')) {
-            return NextResponse.json({
-              error: 'Database schema not set up. The onboarding_steps table does not exist.',
-              details: stepError.message,
-              hint: 'Run the SQL in supabase/migrations/create_onboarding_tables.sql in your Supabase SQL editor'
-            }, { status: 500 })
-          }
-          return NextResponse.json({
-            error: `Failed to create step ${step.step_number}: ${stepError.message}`,
-            details: stepError
-          }, { status: 500 })
-        }
-
-        if (!newStep) {
-          return NextResponse.json({
-            error: `Failed to create step ${step.step_number}: No data returned`
-          }, { status: 500 })
-        }
-
-        savedStep = newStep
-      }
-
-      savedSteps.push(savedStep)
-    }
-
-    // Update project with final status
-    console.log('[Onboarding Complete] Updating project with final status...')
-    const { error: updateProjectError } = await supabaseAdmin
-      .from('projects')
-      .update({
-        onboarding_percent: onboardingPercent,
-        onboarding_finished: true,
-        updated_at: new Date().toISOString()
       })
-      .eq('id', project.id)
 
-    if (updateProjectError) {
-      console.error('[Onboarding Complete] Error updating project:', updateProjectError)
-      // Don't fail the request - steps are already saved
-      console.warn('[Onboarding Complete] Steps saved but project update failed')
+      onboardingAnswersId = updatedAnswers.id
+      console.log('[Onboarding Complete] Updated onboarding answers:', onboardingAnswersId)
+        } else {
+      // Create new onboarding answers
+      console.log('[Onboarding Complete] Creating new onboarding answers...')
+      const newAnswers = await prisma.onboardingAnswer.create({
+        data: {
+          userId,
+          answers,
+          completedAt: new Date()
+        }
+      })
+
+      onboardingAnswersId = newAnswers.id
+      console.log('[Onboarding Complete] Created onboarding answers:', onboardingAnswersId)
+    }
+
+    // Step 3: Create or update client record
+    console.log('[Onboarding Complete] Creating/updating client record...')
+    
+    // Extract name from "Your name and role" field in Step 1
+    // This is the primary source for the client name
+    const step1Fields = steps[0]?.fields || {}
+    const name = step1Fields.name_and_role || null
+    
+    console.log('[Onboarding Complete] Extracted name from "Your name and role" field:', {
+      name_and_role: step1Fields.name_and_role,
+      extracted: name
+    })
+
+    // Check if client already exists
+    const existingClient = await prisma.client.findFirst({
+      where: {
+        userId,
+        plan: kit_type
+      }
+    })
+
+    let clientId: string
+
+    if (existingClient) {
+      // Update existing client
+      console.log('[Onboarding Complete] Updating existing client...')
+      
+      // Use name_and_role from Step 1, or keep existing name if not provided
+      // Fallback to email username if neither is available
+      const clientName = name || existingClient.name || emailLower.split('@')[0] || 'Client'
+      
+      console.log('[Onboarding Complete] Client name to save:', clientName)
+      
+      const updatedClient = await prisma.client.update({
+        where: { id: existingClient.id },
+        data: {
+          name: clientName,
+          email: emailLower,
+          onboardingAnswersId
+        }
+      })
+
+      clientId = updatedClient.id
+      console.log('[Onboarding Complete] Updated client:', clientId)
+    } else {
+      // Create new client
+      console.log('[Onboarding Complete] Creating new client...')
+      
+      // Use name_and_role from Step 1, or fallback to email username if not provided
+      const clientName = name || emailLower.split('@')[0] || 'Client'
+      
+      console.log('[Onboarding Complete] Client name to save:', clientName)
+      
+      const newClient = await prisma.client.create({
+        data: {
+          userId,
+          name: clientName,
+          email: emailLower,
+          plan: kit_type,
+          onboardingAnswersId
+        }
+      })
+
+      clientId = newClient.id
+      console.log('[Onboarding Complete] Created client:', clientId)
+    }
+
+    // Step 4: Initialize client_phase_state entries
+    console.log('[Onboarding Complete] Initializing phase state entries...')
+    
+    // Get phase structure from frontend code
+    const phaseStructure = getPhaseStructureForKitType(kit_type)
+    
+    // Check if phase state already exists
+    const existingPhaseState = await prisma.clientPhaseState.findFirst({
+      where: { clientId }
+    })
+
+    if (!existingPhaseState) {
+      // Initialize phase state for all phases
+      for (const phase of phaseStructure) {
+        // Initialize checklist with all items set to false
+        const checklist: Record<string, boolean> = {}
+        phase.checklist.forEach(label => {
+          checklist[label] = false
+        })
+
+        try {
+          await prisma.clientPhaseState.create({
+            data: {
+              clientId,
+              phaseId: phase.phase_id,
+              status: 'NOT_STARTED',
+              checklist
+            }
+          })
+          console.log(`[Onboarding Complete] Created phase state for ${phase.phase_id}`)
+        } catch (error) {
+          console.error(`[Onboarding Complete] Error creating phase state for ${phase.phase_id}:`, error)
+          // Continue with other phases even if one fails
+        }
+      }
+
+      console.log('[Onboarding Complete] Phase state initialized for all phases')
+    } else {
+      console.log('[Onboarding Complete] Phase state already exists, skipping initialization')
     }
 
     console.log('[Onboarding Complete] Onboarding saved successfully!')
     return NextResponse.json({
       success: true,
-      project: {
-        id: project.id,
-        email: emailLower,
-        kit_type,
-        onboarding_percent: onboardingPercent,
-        onboarding_finished: true
+      client: {
+        id: clientId,
+        user_id: userId,
+        plan: kit_type,
+        email: emailLower
       },
-      steps: savedSteps
+      onboarding_answers_id: onboardingAnswersId,
+      user_id: userId
     })
   } catch (error: any) {
     console.error('[Onboarding Complete] Unexpected error:', error)

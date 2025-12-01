@@ -1,8 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* postcss-custom-variant: ignore */
 @custom-variant dark (&:is(.dark *));
 
+/* postcss-theme: ignore */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -114,12 +116,14 @@
 
 @layer base {
   * {
+    /* postcss-apply: ignore */
     @apply border-border outline-ring/50;
   }
   html {
     font-family: var(--font-bricolage-grotesque), system-ui, sans-serif;
   }
   body {
+    /* postcss-apply: ignore */
     @apply bg-background text-foreground;
     font-family: var(--font-bricolage-grotesque), system-ui, sans-serif;
   }

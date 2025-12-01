@@ -1,22 +1,22 @@
 'use client'
 
-import { ProjectWithRelations } from '@/types/project'
+import { ProjectWithMergedPhases } from '@/types/project'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 interface DashboardCoursueStyleProps {
-  project: ProjectWithRelations | null
+  project: ProjectWithMergedPhases | null
 }
 
 export default function DashboardCoursueStyle({ project }: DashboardCoursueStyleProps) {
   const router = useRouter()
 
-  // Get onboarding steps status
-  const onboardingSteps = project?.onboarding_steps || []
-  const completedSteps = onboardingSteps.filter(s => s.status === 'DONE').length
+  // Get onboarding steps status (may not exist in ProjectWithMergedPhases)
+  const onboardingSteps = (project as any)?.onboarding_steps || []
+  const completedSteps = onboardingSteps.filter((s: any) => s.status === 'DONE').length
   const totalSteps = onboardingSteps.length || 3
 
-  // Get current phase
+  // Get current phase (works with MergedPhase structure)
   const currentPhase = project?.phases?.find((p) => p.status === 'IN_PROGRESS') 
     || project?.phases?.find((p) => p.status === 'WAITING_ON_CLIENT')
     || null
@@ -60,9 +60,9 @@ export default function DashboardCoursueStyle({ project }: DashboardCoursueStyle
 
   // Continue working items (onboarding steps)
   const continueItems = onboardingSteps
-    .filter(step => step.status !== 'DONE')
+    .filter((step: any) => step.status !== 'DONE')
     .slice(0, 3)
-    .map(step => ({
+    .map((step: any) => ({
       id: step.id,
       title: step.title,
       stepNumber: step.step_number,
@@ -72,8 +72,8 @@ export default function DashboardCoursueStyle({ project }: DashboardCoursueStyle
     }))
 
   // Your tasks (phases or next actions)
-  const tasks = project?.phases?.slice(0, 3).map(phase => ({
-    id: phase.id,
+  const tasks = project?.phases?.slice(0, 3).map((phase: any) => ({
+    id: phase.phase_id || phase.id,
     title: phase.title,
     type: 'Phase',
     description: phase.subtitle || phase.day_range || 'Project phase',
@@ -81,7 +81,7 @@ export default function DashboardCoursueStyle({ project }: DashboardCoursueStyle
   })) || []
   
   // If no phases, show onboarding steps as tasks
-  const displayTasks = tasks.length > 0 ? tasks : onboardingSteps.slice(0, 3).map(step => ({
+  const displayTasks = tasks.length > 0 ? tasks : onboardingSteps.slice(0, 3).map((step: any) => ({
     id: step.id,
     title: step.title,
     type: 'Onboarding',
@@ -111,10 +111,10 @@ export default function DashboardCoursueStyle({ project }: DashboardCoursueStyle
             <p className="text-lg mb-6 opacity-90">
               Complete your onboarding and watch your project come to life
             </p>
-            {onboardingSteps.some(s => s.status !== 'DONE') ? (
+            {onboardingSteps.some((s: any) => s.status !== 'DONE') ? (
               <button
                 onClick={() => {
-                  const incompleteStep = onboardingSteps.find(s => s.status !== 'DONE')
+                  const incompleteStep = onboardingSteps.find((s: any) => s.status !== 'DONE')
                   if (incompleteStep && project) {
                     router.push(`/${project.kit_type.toLowerCase()}-kit/onboarding/step-${incompleteStep.step_number}`)
                   }
@@ -190,7 +190,7 @@ export default function DashboardCoursueStyle({ project }: DashboardCoursueStyle
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {continueItems.map((item) => (
+                  {continueItems.map((item: any) => (
                     <div
                       key={item.id}
                       className="group relative overflow-hidden rounded-xl bg-white border border-gray-200 hover:shadow-lg transition-all duration-300 cursor-pointer"
@@ -254,7 +254,7 @@ export default function DashboardCoursueStyle({ project }: DashboardCoursueStyle
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {displayTasks.length > 0 ? (
-                        displayTasks.map((task) => (
+                        displayTasks.map((task: any) => (
                           <tr key={task.id} className="hover:bg-gray-50 transition-colors">
                             <td className="px-4 py-4">
                               <div className="text-sm font-medium text-black">{task.title}</div>
