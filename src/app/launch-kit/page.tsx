@@ -37,9 +37,13 @@ export default function LaunchKitPage() {
         user_id: 'mock-user',
         kit_type: 'LAUNCH' as const,
         onboarding_percent: onboarding.onboarding_percent || 0,
+        onboarding_finished: onboarding.onboarding_finished || false,
         current_day_of_14: null,
         next_from_us: null,
         next_from_you: null,
+        phases_state: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
         onboarding_steps: onboarding.steps || [],
         phases: []
       }
@@ -49,9 +53,13 @@ export default function LaunchKitPage() {
       user_id: 'mock-user',
       kit_type: 'LAUNCH' as const,
       onboarding_percent: 0,
+      onboarding_finished: false,
       current_day_of_14: null,
       next_from_us: null,
       next_from_you: null,
+      phases_state: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
       onboarding_steps: [],
       phases: []
     }
