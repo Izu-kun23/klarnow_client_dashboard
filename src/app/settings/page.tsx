@@ -48,7 +48,7 @@ export default function SettingsPage() {
                     Email
                   </label>
                   <div className="text-base text-gray-900">
-                    {user.email || user.email_address || 'Not available'}
+                    {user.email || 'Not available'}
                   </div>
                 </div>
                 <div>
