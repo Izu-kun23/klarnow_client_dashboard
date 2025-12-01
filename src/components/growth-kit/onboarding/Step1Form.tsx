@@ -195,7 +195,7 @@ export default function GrowthKitStep1Form({ project, step }: Step1FormProps) {
             const quizSubmission = await fetchQuizSubmission(quizSubmissionId, userEmail)
             if (quizSubmission) {
               const mappedFields = mapQuizToOnboardingFields(quizSubmission, kitType)
-              allFields = mergeQuizDataWithFormData(allFields, mappedFields, true)
+              allFields = mergeQuizDataWithFormData(allFields, mappedFields, true) as FormData
               console.log('[Growth Step1] Re-merged quiz data before saving')
             }
           }
